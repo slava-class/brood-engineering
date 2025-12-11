@@ -389,35 +389,11 @@ end
 --- Handle spider death (drop as item)
 ---@param spider_entity LuaEntity
 function spider.on_death(spider_entity)
-    if not spider_entity then return end
+    if not spider_entity or not spider_entity.valid then return end
 
-    local entity_id = spider_entity.unit_number
-    local spider_id = storage.entity_to_spider[entity_id]
-
-    if not spider_id then return end
-
-    local anchor = get_anchor_module()
-    local anchor_id = storage.spider_to_anchor[spider_id]
-
-    if anchor_id then
-        local anchor_data = anchor.get(anchor_id)
-        if anchor_data then
-            -- Clear task assignment
-            local spider_data = anchor_data.spiders[spider_id]
-            if spider_data and spider_data.task and spider_data.task.id then
-                storage.assigned_tasks[spider_data.task.id] = nil
-            end
-
-            -- Remove from anchor
-            anchor_data.spiders[spider_id] = nil
-        end
-    end
-
-    -- Clean up tracking
-    storage.entity_to_spider[entity_id] = nil
-    storage.spider_to_anchor[spider_id] = nil
-
-    -- Drop item on ground (marked for deconstruction)
+    -- Drop item on ground (marked for deconstruction).
+    -- Entity/task tracking is cleaned up by the on_object_destroyed
+    -- handler in control.lua.
     local surface = spider_entity.surface
     local position = spider_entity.position
     local force = spider_entity.force
@@ -432,7 +408,7 @@ function spider.on_death(spider_entity)
         item_on_ground.order_deconstruction(force)
     end
 
-    utils.log("Spider " .. spider_id .. " died, dropped as item")
+    utils.log("Spider died, dropped as item")
 end
 
 --- Get spider data by ID

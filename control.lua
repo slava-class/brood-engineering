@@ -212,9 +212,9 @@ local function main_loop()
 
         -- Auto-deploy if work exists and below max
         local spider_count = anchor.get_spider_count(anchor_data)
-        local has_spiderbots, spiderbot_count = anchor.has_spiderbots_in_inventory(anchor_data)
+        local has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
 
-        if has_spiderbots and spider_count < constants.max_spiders_per_anchor then
+        if has_spiderlings and spider_count < constants.max_spiders_per_anchor then
             -- Check if there's any work
             local work_exists = tasks.exist_in_area(surface, anchor_area, force)
 
@@ -222,11 +222,11 @@ local function main_loop()
                 local deploys = 0
                 while deploys < constants.max_deploys_per_tick and
                       spider_count < constants.max_spiders_per_anchor and
-                      has_spiderbots do
+                      has_spiderlings do
                     spider.deploy(anchor_id)
                     deploys = deploys + 1
                     spider_count = anchor.get_spider_count(anchor_data)
-                    has_spiderbots, spiderbot_count = anchor.has_spiderbots_in_inventory(anchor_data)
+                    has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
                 end
             end
         end
@@ -348,7 +348,7 @@ end
 
 local function on_entity_died(event)
     local entity = event.entity
-    if not entity or entity.name ~= "spiderbot" then return end
+    if not entity or entity.name ~= "spiderling" then return end
 
     spider.on_death(entity)
 end
@@ -383,7 +383,7 @@ end
 
 local function on_trigger_created_entity(event)
     local entity = event.entity
-    if not entity or entity.name ~= "spiderbot" then return end
+    if not entity or entity.name ~= "spiderling" then return end
 
     local source = event.source
     if not source or not source.valid then return end
