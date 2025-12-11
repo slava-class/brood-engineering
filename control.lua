@@ -20,6 +20,22 @@ local function setup_storage()
     storage.global_enabled = storage.global_enabled ~= false  -- default true
     storage.anchor_id_counter = storage.anchor_id_counter or 0
     storage.spider_id_counter = storage.spider_id_counter or 0
+
+    -- Clean up any non-serialisable task data from older versions
+    -- (tasks should not keep behavior tables/functions in storage)
+    for _, anchor_data in pairs(storage.anchors) do
+        if anchor_data.spiders then
+            for _, spider_data in pairs(anchor_data.spiders) do
+                local task = spider_data.task
+                if task and task.behavior then
+                    if not task.behavior_name and task.behavior.name then
+                        task.behavior_name = task.behavior.name
+                    end
+                    task.behavior = nil
+                end
+            end
+        end
+    end
 end
 
 --- Recall all spiders for an anchor and destroy the anchor.

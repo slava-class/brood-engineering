@@ -27,7 +27,7 @@ end
 ---@param area BoundingBox
 ---@param force LuaForce[]
 ---@param inventory LuaInventory
----@return table? task { id, entity/tile, behavior }
+---@return table? task { id, entity/tile, behavior_name }
 function tasks.find_best(surface, area, force, inventory)
     local behaviors = get_behaviors()
     
@@ -53,7 +53,8 @@ function tasks.find_best(surface, area, force, inventory)
                             id = task_id,
                             entity = target.object_name == "LuaEntity" and target or nil,
                             tile = target.object_name == "LuaTile" and target or nil,
-                            behavior = behavior,
+                            -- Store only a serialisable identifier, not the behavior table itself
+                            behavior_name = behavior.name,
                         }
                     end
                 end
@@ -87,7 +88,8 @@ function tasks.find_all(surface, area, force, inventory)
                             id = task_id,
                             entity = target.object_name == "LuaEntity" and target or nil,
                             tile = target.object_name == "LuaTile" and target or nil,
-                            behavior = behavior,
+                            -- Store only a serialisable identifier, not the behavior table itself
+                            behavior_name = behavior.name,
                             priority = behavior.priority,
                         }
                     end
@@ -127,28 +129,47 @@ end
 ---@param anchor_data table
 ---@return boolean success
 function tasks.execute(spider_data, task, inventory, anchor_data)
-    if not task or not task.behavior then
+    if not task then
         return false
     end
-    
+
     local target = task.entity or task.tile
     if not target or not target.valid then
         return false
     end
-    
-    -- Double-check we can still execute
-    if not task.behavior.can_execute(target, inventory) then
+
+    -- Resolve behavior from stored name (preferred) or fall back for compatibility
+    local behavior
+    local behaviors = get_behaviors()
+
+    if task.behavior_name then
+        for _, candidate in ipairs(behaviors) do
+            if candidate.name == task.behavior_name then
+                behavior = candidate
+                break
+            end
+        end
+    elseif task.behavior and task.behavior.name then
+        -- Backwards compatibility with older saves that stored the behavior table
+        behavior = task.behavior
+    end
+
+    if not behavior then
         return false
     end
-    
+
+    -- Double-check we can still execute
+    if not behavior.can_execute(target, inventory) then
+        return false
+    end
+
     -- Execute the behavior
-    local success = task.behavior.execute(spider_data, target, inventory, anchor_data)
-    
+    local success = behavior.execute(spider_data, target, inventory, anchor_data)
+
     -- Clear assignment tracking regardless of success
     if task.id then
         storage.assigned_tasks[task.id] = nil
     end
-    
     return success
 end
 
