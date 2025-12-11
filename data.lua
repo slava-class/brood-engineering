@@ -19,6 +19,8 @@ local spiderling_args = {
     leg_thickness = 1.44,
     leg_movement_speed = spider_leg_movement_speed,
 }
+
+---@diagnostic disable-next-line: undefined-global
 create_spidertron(spiderling_args)
 
 -- Get the created prototype and modify it
@@ -124,13 +126,18 @@ if spiderling.spider_engine and spiderling.spider_engine.legs then
     end
 end
 
--- Increase selection box for easier clicking
-if spiderling.selection_box then
+do
     local box = spiderling.selection_box
-    box[1][1] = box[1][1] * 2
-    box[1][2] = box[1][2] * 2
-    box[2][1] = box[2][1] * 2
-    box[2][2] = box[2][2] * 2
+    if box
+        and box[1] and box[2]
+        and box[1][1] and box[1][2]
+        and box[2][1] and box[2][2]
+    then
+        box[1][1] = box[1][1] * 2
+        box[1][2] = box[1][2] * 2
+        box[2][1] = box[2][1] * 2
+        box[2][2] = box[2][2] * 2
+    end
 end
 
 data:extend({ spiderling })

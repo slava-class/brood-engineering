@@ -16,7 +16,7 @@ end
 
 --- Create an anchor for a player
 ---@param player LuaPlayer
----@return string anchor_id
+---@return string? anchor_id
 function anchor.create_for_player(player)
     local player_entity = utils.get_player_entity(player)
     if not player_entity then
@@ -210,7 +210,8 @@ end
 
 --- Check if anchor has spiderlings in inventory
 ---@param anchor_data table
----@return boolean, integer
+---@return boolean has_any
+---@return integer count
 function anchor.has_spiderlings_in_inventory(anchor_data)
     local inventory = anchor.get_inventory(anchor_data)
     if not inventory then return false, 0 end

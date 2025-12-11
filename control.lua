@@ -45,6 +45,7 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
 
     local status = spider_data.status
     local surface = anchor.get_surface(anchor_data)
+    if not surface then return end
     local force = anchor.get_force(anchor_data)
 
     -- Handle different states
@@ -167,6 +168,7 @@ local function main_loop()
 
         local anchor_area = anchor.get_expanded_work_area(anchor_data)
         local surface = anchor.get_surface(anchor_data)
+        if not surface then return end
         local force = anchor.get_force(anchor_data)
 
         -- Process each spider
@@ -304,6 +306,7 @@ local function on_player_changed_surface(event)
     local new_entity = utils.get_player_entity(player)
     if new_entity and new_entity.valid then
         local anchor_id = anchor.get_id_for_player(player)
+        if not anchor_id then return end
         anchor.update_entity(anchor_id, new_entity)
 
         -- Teleport all spiders
