@@ -49,6 +49,12 @@ local constants = {
     -- Jump distance when stuck
     jump_distance = 4,
 
+    -- How long speed must be zero before considered stuck (ticks)
+    stuck_timeout_ticks = 120, -- ~2 seconds
+
+    -- Speed threshold to treat as "stopped"
+    stuck_speed_threshold = 0.01,
+
     -- How close spider needs to be to task to execute
     task_arrival_distance = 1.5,
 

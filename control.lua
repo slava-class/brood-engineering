@@ -109,18 +109,19 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             return
         end
 
-        -- Check if stuck
-        if spider.is_stuck(spider_data) then
-            spider.jump(spider_id)
-            return
-        end
-
-        -- Check if arrived
+        -- Check if arrived before treating as stuck
         if spider.has_arrived(spider_data) then
             spider.arrive_at_task(spider_id)
             -- Execute immediately (instant execution in v0.1)
             local success = tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
             spider.complete_task(spider_id)
+            return
+        end
+
+        -- Check if stuck
+        if spider.is_stuck(spider_data) then
+            spider.jump(spider_id)
+            return
         end
 
     elseif status == "executing" then

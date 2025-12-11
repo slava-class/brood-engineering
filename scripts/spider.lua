@@ -332,6 +332,7 @@ function spider.jump(spider_id)
 
     local spider_entity = spider_data.entity
     if not spider_entity or not spider_entity.valid then return end
+    local anchor_entity = anchor_data.entity
 
     local surface = spider_entity.surface
     local current_pos = spider_entity.position
@@ -357,8 +358,20 @@ function spider.jump(spider_id)
         spider_entity.teleport(valid_pos)
     end
 
-    -- Clear task if we were stuck on it
-    spider.clear_task(spider_id)
+    -- Re-path to current task if still valid; otherwise clear task
+    local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
+    if target and target.valid then
+        spider_entity.autopilot_destination = surface.find_non_colliding_position(
+            "spiderling",
+            target.position,
+            5,
+            0.5
+        ) or target.position
+        spider_data.stuck_since = nil
+    else
+        spider.clear_task(spider_id)
+        spider_entity.follow_target = anchor_entity
+    end
 end
 
 --- Handle spider death (drop as item)
@@ -422,7 +435,24 @@ function spider.is_stuck(spider_data)
     local spider_entity = spider_data.entity
     if not spider_entity or not spider_entity.valid then return false end
 
-    return spider_entity.speed == 0 and spider_data.status == "moving_to_task"
+    if spider_data.status ~= "moving_to_task" then
+        spider_data.stuck_since = nil
+        return false
+    end
+
+    local speed = spider_entity.speed or 0
+    local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
+    local target_pos = target and target.valid and target.position or nil
+    local dist = target_pos and utils.distance(spider_entity.position, target_pos) or math.huge
+
+    -- Reset timer if moving or close enough to execute
+    if speed > constants.stuck_speed_threshold or dist <= constants.task_arrival_distance then
+        spider_data.stuck_since = nil
+        return false
+    end
+
+    spider_data.stuck_since = spider_data.stuck_since or game.tick
+    return (game.tick - spider_data.stuck_since) >= constants.stuck_timeout_ticks
 end
 
 --- Check if spider is near its anchor
