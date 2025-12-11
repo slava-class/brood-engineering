@@ -1,0 +1,471 @@
+-- control.lua
+-- Main entry point for Brood Engineering
+
+local constants = require("scripts/constants")
+local utils = require("scripts/utils")
+local anchor = require("scripts/anchor")
+local spider = require("scripts/spider")
+local tasks = require("scripts/tasks")
+
+---------------------------------------------------------------------------
+-- STORAGE INITIALIZATION
+---------------------------------------------------------------------------
+
+local function setup_storage()
+    storage.anchors = storage.anchors or {}
+    storage.spider_to_anchor = storage.spider_to_anchor or {}
+    storage.entity_to_spider = storage.entity_to_spider or {}
+    storage.assigned_tasks = storage.assigned_tasks or {}
+    storage.player_to_anchor = storage.player_to_anchor or {}
+    storage.global_enabled = storage.global_enabled ~= false  -- default true
+    storage.anchor_id_counter = storage.anchor_id_counter or 0
+    storage.spider_id_counter = storage.spider_id_counter or 0
+end
+
+---------------------------------------------------------------------------
+-- MAIN LOOP
+---------------------------------------------------------------------------
+
+local function process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area)
+    local spider_entity = spider_data.entity
+
+    -- Validate spider entity
+    if not spider_entity or not spider_entity.valid then
+        -- Clean up invalid spider
+        if spider_data.task and spider_data.task.id then
+            storage.assigned_tasks[spider_data.task.id] = nil
+        end
+        if spider_data.entity_id then
+            storage.entity_to_spider[spider_data.entity_id] = nil
+        end
+        storage.spider_to_anchor[spider_id] = nil
+        anchor_data.spiders[spider_id] = nil
+        return
+    end
+
+    local status = spider_data.status
+    local surface = anchor.get_surface(anchor_data)
+    local force = anchor.get_force(anchor_data)
+
+    -- Handle different states
+    if status == "deployed_idle" then
+        -- First, check for self-assignment (personal radius)
+        local personal_area = spider.get_personal_area(spider_data)
+        local task = tasks.find_best(surface, personal_area, force, inventory)
+
+        if task then
+            spider.assign_task(spider_id, task)
+            return
+        end
+
+        -- No nearby task - check if near anchor
+        local near = spider.is_near_anchor(spider_data, anchor_data)
+
+        if near then
+            -- Track idle time
+            if not spider_data.idle_since then
+                spider_data.idle_since = game.tick
+            elseif game.tick - spider_data.idle_since > constants.idle_timeout_ticks then
+                -- Been idle too long, recall
+                spider.recall(spider_id)
+                return
+            end
+        else
+            -- Not near anchor, walking back
+            spider_data.idle_since = nil
+
+            -- Make sure follow target is set
+            local anchor_entity = anchor_data.entity
+            if anchor_entity and anchor_entity.valid then
+                if spider_entity.follow_target ~= anchor_entity then
+                    spider_entity.follow_target = anchor_entity
+                end
+            end
+        end
+
+    elseif status == "moving_to_task" then
+        -- Check if task is still valid
+        if not spider.is_task_valid(spider_data) then
+            spider.clear_task(spider_id)
+            return
+        end
+
+        -- Check if stuck
+        if spider.is_stuck(spider_data) then
+            spider.jump(spider_id)
+            return
+        end
+
+        -- Check if arrived
+        if spider.has_arrived(spider_data) then
+            spider.arrive_at_task(spider_id)
+            -- Execute immediately (instant execution in v0.1)
+            local success = tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
+            spider.complete_task(spider_id)
+        end
+
+    elseif status == "executing" then
+        -- Shouldn't stay in this state long (instant execution)
+        -- Just complete and move on
+        spider.complete_task(spider_id)
+    end
+end
+
+local function main_loop()
+    -- Skip if globally disabled
+    if not storage.global_enabled then
+        return
+    end
+
+    for anchor_id, anchor_data in anchor.iterate() do
+        -- Validate anchor
+        if not anchor.is_valid(anchor_data) then
+            -- Try to update entity reference for player anchors
+            if anchor_data.type == "player" and anchor_data.player_index then
+                local player = game.get_player(anchor_data.player_index)
+                if player and player.valid then
+                    local new_entity = utils.get_player_entity(player)
+                    if new_entity and new_entity.valid then
+                        anchor.update_entity(anchor_id, new_entity)
+                    else
+                        goto next_anchor
+                    end
+                else
+                    anchor.destroy(anchor_id)
+                    goto next_anchor
+                end
+            else
+                anchor.destroy(anchor_id)
+                goto next_anchor
+            end
+        end
+
+        -- Check for player controller type
+        if anchor_data.type == "player" and anchor_data.player_index then
+            local player = game.get_player(anchor_data.player_index)
+            if player and player.valid then
+                if not constants.allowed_controllers[player.controller_type] then
+                    goto next_anchor
+                end
+            end
+        end
+
+        -- Check for anchor teleport
+        local teleported = anchor.update_position(anchor_data)
+        if teleported then
+            -- Teleport all spiders to anchor
+            for spider_id, _ in pairs(anchor_data.spiders) do
+                spider.teleport_to_anchor(spider_id)
+            end
+        end
+
+        -- Get inventory and work area
+        local inventory = anchor.get_inventory(anchor_data)
+        if not inventory or not inventory.valid then
+            goto next_anchor
+        end
+
+        local anchor_area = anchor.get_expanded_work_area(anchor_data)
+        local surface = anchor.get_surface(anchor_data)
+        local force = anchor.get_force(anchor_data)
+
+        -- Process each spider
+        local assignments_this_tick = 0
+
+        for spider_id, spider_data in utils.random_pairs(anchor_data.spiders) do
+            process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area)
+
+            -- Count assignments
+            if spider_data.status == "moving_to_task" then
+                assignments_this_tick = assignments_this_tick + 1
+                if assignments_this_tick >= constants.max_assignments_per_tick then
+                    break
+                end
+            end
+        end
+
+        -- Anchor-level task assignment for idle spiders at anchor
+        local idle_at_anchor = {}
+        for spider_id, spider_data in pairs(anchor_data.spiders) do
+            if spider_data.status == "deployed_idle" and
+               spider.is_near_anchor(spider_data, anchor_data) then
+                idle_at_anchor[#idle_at_anchor + 1] = spider_id
+            end
+        end
+
+        if #idle_at_anchor > 0 and assignments_this_tick < constants.max_assignments_per_tick then
+            local available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
+
+            for _, spider_id in ipairs(idle_at_anchor) do
+                if #available_tasks == 0 then break end
+                if assignments_this_tick >= constants.max_assignments_per_tick then break end
+
+                local task = table.remove(available_tasks, 1)
+                if task then
+                    spider.assign_task(spider_id, task)
+                    assignments_this_tick = assignments_this_tick + 1
+                end
+            end
+        end
+
+        -- Auto-deploy if work exists and below max
+        local spider_count = anchor.get_spider_count(anchor_data)
+        local has_spiderbots, spiderbot_count = anchor.has_spiderbots_in_inventory(anchor_data)
+
+        if has_spiderbots and spider_count < constants.max_spiders_per_anchor then
+            -- Check if there's any work
+            local work_exists = tasks.exist_in_area(surface, anchor_area, force)
+
+            if work_exists then
+                local deploys = 0
+                while deploys < constants.max_deploys_per_tick and
+                      spider_count < constants.max_spiders_per_anchor and
+                      has_spiderbots do
+                    spider.deploy(anchor_id)
+                    deploys = deploys + 1
+                    spider_count = anchor.get_spider_count(anchor_data)
+                    has_spiderbots, spiderbot_count = anchor.has_spiderbots_in_inventory(anchor_data)
+                end
+            end
+        end
+
+        ::next_anchor::
+    end
+
+    -- Periodic cleanup
+    if game.tick % 300 == 0 then
+        tasks.cleanup_stale()
+    end
+end
+
+---------------------------------------------------------------------------
+-- TOGGLE HANDLER
+---------------------------------------------------------------------------
+
+local function toggle_global(event)
+    local name = event.prototype_name or event.input_name
+    if name ~= "brood-toggle" then return end
+
+    storage.global_enabled = not storage.global_enabled
+
+    -- Update shortcut toggle state for all players
+    for _, player in pairs(game.players) do
+        player.set_shortcut_toggled("brood-toggle", storage.global_enabled)
+    end
+
+    if not storage.global_enabled then
+        -- Recall all spiders
+        for anchor_id, anchor_data in anchor.iterate() do
+            local spider_ids = {}
+            for spider_id, _ in pairs(anchor_data.spiders) do
+                spider_ids[#spider_ids + 1] = spider_id
+            end
+            for _, spider_id in ipairs(spider_ids) do
+                spider.recall(spider_id)
+            end
+        end
+    end
+
+    local player = game.get_player(event.player_index)
+    if player then
+        player.print(storage.global_enabled and
+            "[Brood] Spiders enabled" or
+            "[Brood] Spiders disabled - all recalled")
+    end
+end
+
+---------------------------------------------------------------------------
+-- PLAYER EVENTS
+---------------------------------------------------------------------------
+
+local function on_player_created(event)
+    local player = game.get_player(event.player_index)
+    if player and player.valid then
+        anchor.create_for_player(player)
+        player.set_shortcut_toggled("brood-toggle", storage.global_enabled)
+    end
+end
+
+local function on_player_removed(event)
+    local anchor_id = storage.player_to_anchor and storage.player_to_anchor[event.player_index]
+    if anchor_id then
+        anchor.destroy(anchor_id)
+    end
+end
+
+local function on_player_changed_surface(event)
+    local player = game.get_player(event.player_index)
+    if not player or not player.valid then return end
+
+    local anchor_data = anchor.get_for_player(player)
+    if not anchor_data then return end
+
+    -- Update anchor entity reference
+    local new_entity = utils.get_player_entity(player)
+    if new_entity and new_entity.valid then
+        local anchor_id = anchor.get_id_for_player(player)
+        anchor.update_entity(anchor_id, new_entity)
+
+        -- Teleport all spiders
+        for spider_id, _ in pairs(anchor_data.spiders) do
+            spider.teleport_to_anchor(spider_id)
+        end
+    end
+end
+
+local function on_player_driving_changed_state(event)
+    local player = game.get_player(event.player_index)
+    if not player or not player.valid then return end
+
+    local anchor_id = anchor.get_id_for_player(player)
+    if not anchor_id then return end
+
+    local new_entity = utils.get_player_entity(player)
+    if new_entity and new_entity.valid then
+        anchor.update_entity(anchor_id, new_entity)
+
+        -- Update spider follow targets
+        local anchor_data = anchor.get(anchor_id)
+        if anchor_data then
+            for spider_id, spider_data in pairs(anchor_data.spiders) do
+                local spider_entity = spider_data.entity
+                if spider_entity and spider_entity.valid then
+                    if spider_data.status == "deployed_idle" then
+                        spider_entity.follow_target = new_entity
+                    end
+                end
+            end
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- SPIDER DEATH
+---------------------------------------------------------------------------
+
+local function on_entity_died(event)
+    local entity = event.entity
+    if not entity or entity.name ~= "spiderbot" then return end
+
+    spider.on_death(entity)
+end
+
+local function on_object_destroyed(event)
+    local entity_id = event.useful_id
+    if not entity_id then return end
+
+    local spider_id = storage.entity_to_spider[entity_id]
+    if not spider_id then return end
+
+    -- Clean up tracking
+    local anchor_id = storage.spider_to_anchor[spider_id]
+    if anchor_id then
+        local anchor_data = anchor.get(anchor_id)
+        if anchor_data then
+            local spider_data = anchor_data.spiders[spider_id]
+            if spider_data and spider_data.task and spider_data.task.id then
+                storage.assigned_tasks[spider_data.task.id] = nil
+            end
+            anchor_data.spiders[spider_id] = nil
+        end
+    end
+
+    storage.entity_to_spider[entity_id] = nil
+    storage.spider_to_anchor[spider_id] = nil
+end
+
+---------------------------------------------------------------------------
+-- TRIGGER CREATED ENTITY (for capsule throwing, if we add it later)
+---------------------------------------------------------------------------
+
+local function on_trigger_created_entity(event)
+    local entity = event.entity
+    if not entity or entity.name ~= "spiderbot" then return end
+
+    local source = event.source
+    if not source or not source.valid then return end
+
+    -- Find the player
+    local player
+    if source.type == "character" then
+        player = source.player
+    end
+
+    if not player or not player.valid then return end
+
+    -- Get anchor and register spider
+    local anchor_id = anchor.get_id_for_player(player)
+    if not anchor_id then return end
+
+    local anchor_data = anchor.get(anchor_id)
+    if not anchor_data then return end
+
+    -- Register the spider
+    local entity_id = utils.get_entity_id(entity)
+    local spider_id = "spider_" .. (storage.spider_id_counter or 0) + 1
+    storage.spider_id_counter = (storage.spider_id_counter or 0) + 1
+
+    local spider_data = {
+        entity = entity,
+        entity_id = entity_id,
+        anchor_id = anchor_id,
+        status = "deployed_idle",
+        task = nil,
+        idle_since = nil,
+    }
+
+    anchor_data.spiders[spider_id] = spider_data
+    storage.spider_to_anchor[spider_id] = anchor_id
+    storage.entity_to_spider[entity_id] = spider_id
+
+    -- Set color and follow target
+    entity.color = constants.colors.idle
+    entity.follow_target = anchor_data.entity
+end
+
+---------------------------------------------------------------------------
+-- EVENT REGISTRATION
+---------------------------------------------------------------------------
+
+script.on_init(function()
+    setup_storage()
+
+    -- Create anchors for existing players
+    for _, player in pairs(game.players) do
+        anchor.create_for_player(player)
+        player.set_shortcut_toggled("brood-toggle", storage.global_enabled)
+    end
+end)
+
+script.on_configuration_changed(function()
+    setup_storage()
+
+    -- Ensure all players have anchors
+    for _, player in pairs(game.players) do
+        local existing = anchor.get_for_player(player)
+        if not existing then
+            anchor.create_for_player(player)
+        end
+        player.set_shortcut_toggled("brood-toggle", storage.global_enabled)
+    end
+end)
+
+-- Main loop
+script.on_nth_tick(constants.main_loop_interval, main_loop)
+
+-- Toggle
+script.on_event("brood-toggle", toggle_global)
+script.on_event(defines.events.on_lua_shortcut, toggle_global)
+
+-- Player events
+script.on_event(defines.events.on_player_created, on_player_created)
+script.on_event(defines.events.on_player_removed, on_player_removed)
+script.on_event(defines.events.on_player_changed_surface, on_player_changed_surface)
+script.on_event(defines.events.on_player_driving_changed_state, on_player_driving_changed_state)
+
+-- Spider death
+script.on_event(defines.events.on_entity_died, on_entity_died)
+script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
+
+-- Trigger created (for future capsule throwing)
+script.on_event(defines.events.on_trigger_created_entity, on_trigger_created_entity)

@@ -1,0 +1,14 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2024-12-12
+  Features:
+    - Initial release
+    - Autonomous construction spiderlings
+    - Auto-deploy when work exists
+    - Auto-recall after idle timeout
+    - Two-tier task assignment (anchor + spider self-assignment)
+    - 8 behavior types: build entity, build tiles, deconstruct entity, deconstruct tiles, upgrade, item proxy, foundation placement, blocking deconstruction
+    - Global toggle via shortcut button or Alt+B
+    - State-based spider coloring
+    - Teleport spiders when anchor moves far
+    - Drop spider as item on death (marked for pickup)

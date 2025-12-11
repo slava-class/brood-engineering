@@ -1,0 +1,12 @@
+{
+    "name": "brood-engineering",
+    "version": "0.1.0",
+    "title": "Brood Engineering",
+    "author": "CMDR",
+    "homepage": "",
+    "description": "Autonomous construction spiders that build, deconstruct, and upgrade on your behalf. Deploy your brood and watch them work.",
+    "factorio_version": "2.0",
+    "dependencies": [
+        "base >= 2.0"
+    ]
+}
