@@ -109,21 +109,6 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             return
         end
 
-        -- Check if arrived before treating as stuck
-        if spider.has_arrived(spider_data) then
-            spider.arrive_at_task(spider_id)
-            -- Execute immediately (instant execution in v0.1)
-            local success = tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
-            spider.complete_task(spider_id)
-            return
-        end
-
-        -- Check if stuck
-        if spider.is_stuck(spider_data) then
-            spider.jump(spider_id)
-            return
-        end
-
     elseif status == "executing" then
         -- Shouldn't stay in this state long (instant execution)
         -- Just complete and move on
@@ -397,6 +382,52 @@ local function on_object_destroyed(event)
 end
 
 ---------------------------------------------------------------------------
+-- SPIDER MOVEMENT COMPLETION
+---------------------------------------------------------------------------
+
+local function on_spider_command_completed(event)
+    local vehicle = event.vehicle
+    if not vehicle or not vehicle.valid or vehicle.name ~= "spiderling" then return end
+
+    -- Find the corresponding spider_id/anchor_id
+    local spider_id
+    local anchor_id
+    for id, a_id in pairs(storage.spider_to_anchor or {}) do
+        local anchor_data = anchor.get(a_id)
+        if anchor_data then
+            local spider_data = anchor_data.spiders[id]
+            if spider_data and spider_data.entity == vehicle then
+                spider_id = id
+                anchor_id = a_id
+                break
+            end
+        end
+    end
+
+    if not spider_id or not anchor_id then return end
+
+    local anchor_data = anchor.get(anchor_id)
+    if not anchor_data then return end
+
+    local spider_data = anchor_data.spiders[spider_id]
+    if not spider_data or spider_data.status ~= "moving_to_task" or not spider_data.task then
+        return
+    end
+
+    -- Ensure autopilot has actually finished (no remaining destinations)
+    local destinations = vehicle.autopilot_destinations
+    if destinations and #destinations > 0 then
+        return
+    end
+
+    local inventory = anchor.get_inventory(anchor_data)
+    if not inventory or not inventory.valid then return end
+
+    spider.arrive_at_task(spider_id)
+    local _ = tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
+    spider.complete_task(spider_id)
+end
+---------------------------------------------------------------------------
 -- TRIGGER CREATED ENTITY (for capsule throwing, if we add it later)
 ---------------------------------------------------------------------------
 
@@ -488,6 +519,7 @@ script.on_event(defines.events.on_player_driving_changed_state, on_player_drivin
 -- Spider death
 script.on_event(defines.events.on_entity_died, on_entity_died)
 script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
+script.on_event(defines.events.on_spider_command_completed, on_spider_command_completed)
 
 -- Trigger created (for future capsule throwing)
 script.on_event(defines.events.on_trigger_created_entity, on_trigger_created_entity)
