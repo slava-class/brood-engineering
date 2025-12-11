@@ -229,10 +229,18 @@ function anchor.is_valid(anchor_data)
         and anchor_data.entity.valid
 end
 
+--- Internal iterator for anchors
+---@param _ any
+---@param key string?
+---@return string?, table?
+local function iterate_anchors(_, key)
+    return next(storage.anchors, key)
+end
+
 --- Iterate all anchors
 ---@return fun(): string, table
 function anchor.iterate()
-    return pairs(storage.anchors)
+    return iterate_anchors
 end
 
 return anchor
