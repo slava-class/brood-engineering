@@ -76,12 +76,6 @@ function anchor.destroy(anchor_id)
     local anchor_data = storage.anchors[anchor_id]
     if not anchor_data then return end
 
-    -- Recall all spiders first
-    local spider_module = require("scripts/spider")
-    for spider_id, _ in pairs(anchor_data.spiders) do
-        spider_module.recall(spider_id)
-    end
-
     -- Remove player mapping if player anchor
     if anchor_data.type == "player" and anchor_data.player_index then
         if storage.player_to_anchor then

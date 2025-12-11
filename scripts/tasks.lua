@@ -6,15 +6,12 @@ local utils = require("scripts/utils")
 
 local tasks = {}
 
--- Behaviors are loaded lazily
-local behaviors_list
+-- Behaviors list
+local behaviors_list = require("scripts/behaviors/init")
 
---- Get behaviors list (lazy load)
+--- Get behaviors list
 ---@return table[]
 local function get_behaviors()
-    if not behaviors_list then
-        behaviors_list = require("scripts/behaviors/init")
-    end
     return behaviors_list
 end
 
@@ -157,11 +154,11 @@ end
 
 --- Clean up stale task assignments
 function tasks.cleanup_stale()
-    local spider_module = require("scripts/spider")
-    
     for task_id, spider_id in pairs(storage.assigned_tasks) do
-        local spider_data = spider_module.get(spider_id)
-        
+        local anchor_id = storage.spider_to_anchor[spider_id]
+        local anchor_data = anchor_id and storage.anchors and storage.anchors[anchor_id] or nil
+        local spider_data = anchor_data and anchor_data.spiders and anchor_data.spiders[spider_id] or nil
+
         -- Remove if spider doesn't exist or has different task
         if not spider_data or not spider_data.task or spider_data.task.id ~= task_id then
             storage.assigned_tasks[task_id] = nil

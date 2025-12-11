@@ -22,6 +22,24 @@ local function setup_storage()
     storage.spider_id_counter = storage.spider_id_counter or 0
 end
 
+--- Recall all spiders for an anchor and destroy the anchor.
+---@param anchor_id string
+local function destroy_anchor(anchor_id)
+    local anchor_data = anchor.get(anchor_id)
+    if not anchor_data then return end
+
+    -- Copy spider IDs first, since recall() mutates the table.
+    local spider_ids = {}
+    for spider_id, _ in pairs(anchor_data.spiders) do
+        spider_ids[#spider_ids + 1] = spider_id
+    end
+    for _, spider_id in ipairs(spider_ids) do
+        spider.recall(spider_id)
+    end
+
+    anchor.destroy(anchor_id)
+end
+
 ---------------------------------------------------------------------------
 -- MAIN LOOP
 ---------------------------------------------------------------------------
@@ -132,11 +150,11 @@ local function main_loop()
                         goto next_anchor
                     end
                 else
-                    anchor.destroy(anchor_id)
+                    destroy_anchor(anchor_id)
                     goto next_anchor
                 end
             else
-                anchor.destroy(anchor_id)
+                destroy_anchor(anchor_id)
                 goto next_anchor
             end
         end
@@ -291,7 +309,7 @@ end
 local function on_player_removed(event)
     local anchor_id = storage.player_to_anchor and storage.player_to_anchor[event.player_index]
     if anchor_id then
-        anchor.destroy(anchor_id)
+        destroy_anchor(anchor_id)
     end
 end
 

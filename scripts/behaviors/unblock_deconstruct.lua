@@ -4,6 +4,7 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local deconstruct = require("scripts/behaviors/deconstruct_entity")
 
 local behavior = {
     name = "unblock_deconstruct",
@@ -136,7 +137,6 @@ end
 ---@return boolean
 function behavior.execute(spider_data, entity, inventory, anchor_data)
     -- Delegate to regular deconstruct behavior
-    local deconstruct = require("scripts/behaviors/deconstruct_entity")
     return deconstruct.execute(spider_data, entity, inventory, anchor_data)
 end
 

@@ -3,19 +3,9 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local anchor = require("scripts/anchor")
 
 local spider = {}
-
--- Forward declarations for circular dependency
-local anchor_module
-
---- Lazy load anchor module to avoid circular dependency
-local function get_anchor_module()
-    if not anchor_module then
-        anchor_module = require("scripts/anchor")
-    end
-    return anchor_module
-end
 
 --- Generate unique spider ID
 ---@return string
@@ -48,7 +38,6 @@ end
 ---@param anchor_id string
 ---@return string? spider_id
 function spider.deploy(anchor_id)
-    local anchor = get_anchor_module()
     local anchor_data = anchor.get(anchor_id)
     if not anchor_data then return nil end
 
@@ -128,8 +117,6 @@ end
 --- Recall a spider to inventory
 ---@param spider_id string
 function spider.recall(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -168,8 +155,6 @@ end
 --- Handle spider arriving at task
 ---@param spider_id string
 function spider.arrive_at_task(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -186,8 +171,6 @@ end
 --- Complete current task and return to idle
 ---@param spider_id string
 function spider.complete_task(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -222,8 +205,6 @@ end
 ---@param spider_id string
 ---@param task table
 function spider.assign_task(spider_id, task)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -269,8 +250,6 @@ end
 --- Clear a spider's task (e.g., if target becomes invalid)
 ---@param spider_id string
 function spider.clear_task(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -304,8 +283,6 @@ end
 --- Teleport spider to anchor (when anchor teleports)
 ---@param spider_id string
 function spider.teleport_to_anchor(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -344,8 +321,6 @@ end
 --- Make spider jump (when stuck)
 ---@param spider_id string
 function spider.jump(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return end
 
@@ -415,8 +390,6 @@ end
 ---@param spider_id string
 ---@return table? spider_data
 function spider.get(spider_id)
-    local anchor = get_anchor_module()
-
     local anchor_id = storage.spider_to_anchor[spider_id]
     if not anchor_id then return nil end
 
