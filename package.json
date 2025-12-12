@@ -1,0 +1,11 @@
+{
+  "name": "brood-engineering-dev",
+  "private": true,
+  "devDependencies": {
+    "factorio-test-cli": "^2.0.0"
+  },
+  "scripts": {
+    "test:factorio": "factorio-test run .",
+    "test": "factorio-test run ."
+  }
+}

@@ -17,6 +17,7 @@ local function setup_storage()
     storage.entity_to_spider = storage.entity_to_spider or {}
     storage.assigned_tasks = storage.assigned_tasks or {}
     storage.player_to_anchor = storage.player_to_anchor or {}
+    storage.assignment_limits = storage.assignment_limits or {}
     storage.global_enabled = storage.global_enabled ~= false  -- default true
     storage.anchor_id_counter = storage.anchor_id_counter or 0
     storage.spider_id_counter = storage.spider_id_counter or 0
@@ -54,13 +55,45 @@ local function destroy_anchor(anchor_id)
     end
 
     anchor.destroy(anchor_id)
+    if storage.assignment_limits then
+        storage.assignment_limits[anchor_id] = nil
+    end
 end
 
 ---------------------------------------------------------------------------
 -- MAIN LOOP
 ---------------------------------------------------------------------------
 
-local function process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area)
+---------------------------------------------------------------------------
+-- ASSIGNMENT LIMITING
+---------------------------------------------------------------------------
+
+local function get_assignment_limit(anchor_id)
+    if not anchor_id then return nil end
+    storage.assignment_limits = storage.assignment_limits or {}
+    local limit = storage.assignment_limits[anchor_id]
+    if not limit or limit.tick ~= game.tick then
+        limit = { tick = game.tick, count = 0 }
+        storage.assignment_limits[anchor_id] = limit
+    end
+    return limit
+end
+
+local function assign_task_capped(spider_id, task, anchor_id)
+    if not task then return false end
+    if not anchor_id and storage.spider_to_anchor then
+        anchor_id = storage.spider_to_anchor[spider_id]
+    end
+    local limit = get_assignment_limit(anchor_id)
+    if not limit or limit.count >= constants.max_assignments_per_tick then
+        return false
+    end
+    spider.assign_task(spider_id, task)
+    limit.count = limit.count + 1
+    return true
+end
+
+local function process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id)
     local spider_entity = spider_data.entity
 
     -- Validate spider entity
@@ -88,8 +121,7 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
         local personal_area = spider.get_personal_area(spider_data)
         local task = tasks.find_best(surface, personal_area, force, inventory)
 
-        if task then
-            spider.assign_task(spider_id, task)
+        if assign_task_capped(spider_id, task, anchor_id) then
             return
         end
 
@@ -191,19 +223,18 @@ local function main_loop()
         if not surface then return end
         local force = anchor.get_force(anchor_data)
 
+        -- Check if any work exists in the area around this anchor
+        local work_exists = tasks.exist_in_area(surface, anchor_area, force)
+
         -- Process each spider
-        local assignments_this_tick = 0
+        local limit = get_assignment_limit(anchor_id)
+        local assignments_this_tick = limit and limit.count or 0
 
         for spider_id, spider_data in utils.random_pairs(anchor_data.spiders) do
-            process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area)
-
-            -- Count assignments
-            if spider_data.status == "moving_to_task" then
-                assignments_this_tick = assignments_this_tick + 1
-                if assignments_this_tick >= constants.max_assignments_per_tick then
-                    break
-                end
-            end
+            if assignments_this_tick >= constants.max_assignments_per_tick then break end
+            process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id)
+            limit = get_assignment_limit(anchor_id)
+            assignments_this_tick = limit and limit.count or assignments_this_tick
         end
 
         -- Anchor-level task assignment for idle spiders at anchor
@@ -223,8 +254,7 @@ local function main_loop()
                 if assignments_this_tick >= constants.max_assignments_per_tick then break end
 
                 local task = table.remove(available_tasks, 1)
-                if task then
-                    spider.assign_task(spider_id, task)
+                if assign_task_capped(spider_id, task, anchor_id) then
                     assignments_this_tick = assignments_this_tick + 1
                 end
             end
@@ -234,20 +264,36 @@ local function main_loop()
         local spider_count = anchor.get_spider_count(anchor_data)
         local has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
 
-        if has_spiderlings and spider_count < constants.max_spiders_per_anchor then
-            -- Check if there's any work
-            local work_exists = tasks.exist_in_area(surface, anchor_area, force)
+        if has_spiderlings and spider_count < constants.max_spiders_per_anchor and work_exists then
+            local deploys = 0
+            while deploys < constants.max_deploys_per_tick and
+                  spider_count < constants.max_spiders_per_anchor and
+                  has_spiderlings do
+                spider.deploy(anchor_id)
+                deploys = deploys + 1
+                spider_count = anchor.get_spider_count(anchor_data)
+                has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
+            end
+        end
 
-            if work_exists then
-                local deploys = 0
-                while deploys < constants.max_deploys_per_tick and
-                      spider_count < constants.max_spiders_per_anchor and
-                      has_spiderlings do
-                    spider.deploy(anchor_id)
-                    deploys = deploys + 1
-                    spider_count = anchor.get_spider_count(anchor_data)
-                    has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
+        -- Recall idle spiders near the anchor if there has been no work for a while
+        if not work_exists then
+            anchor_data.no_work_since = anchor_data.no_work_since or game.tick
+        else
+            anchor_data.no_work_since = nil
+        end
+
+        if anchor_data.no_work_since and
+           game.tick - anchor_data.no_work_since > constants.no_work_recall_timeout_ticks then
+            local recall_ids = {}
+            for spider_id, spider_data in pairs(anchor_data.spiders) do
+                if spider_data.status == "deployed_idle" and
+                   spider.is_near_anchor(spider_data, anchor_data) then
+                    recall_ids[#recall_ids + 1] = spider_id
                 end
+            end
+            for _, spider_id in ipairs(recall_ids) do
+                spider.recall(spider_id)
             end
         end
 
@@ -439,9 +485,24 @@ local function on_spider_command_completed(event)
     local inventory = anchor.get_inventory(anchor_data)
     if not inventory or not inventory.valid then return end
 
+    -- Mark as arrived and execute the current task
     spider.arrive_at_task(spider_id)
     local _ = tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
     spider.complete_task(spider_id)
+
+    -- Immediately try to pick up another task now that we're idle again
+    local updated_spider_data = anchor_data.spiders[spider_id]
+    if updated_spider_data and updated_spider_data.status == "deployed_idle" then
+        local limit = get_assignment_limit(anchor_id)
+        if limit and limit.count >= constants.max_assignments_per_tick then
+            return
+        end
+        local surface = anchor.get_surface(anchor_data)
+        if surface then
+            local anchor_area = anchor.get_expanded_work_area(anchor_data)
+            process_spider(spider_id, updated_spider_data, anchor_data, inventory, anchor_area, anchor_id)
+        end
+    end
 end
 ---------------------------------------------------------------------------
 -- TRIGGER CREATED ENTITY (for capsule throwing, if we add it later)
@@ -539,3 +600,31 @@ script.on_event(defines.events.on_spider_command_completed, on_spider_command_co
 
 -- Trigger created (for future capsule throwing)
 script.on_event(defines.events.on_trigger_created_entity, on_trigger_created_entity)
+
+---------------------------------------------------------------------------
+-- FACTORIO TEST INTEGRATION (dev-only)
+---------------------------------------------------------------------------
+
+if script.active_mods and script.active_mods["factorio-test"] then
+    if remote and remote.add_interface and not (remote.interfaces and remote.interfaces["brood-engineering-test"]) then
+        remote.add_interface("brood-engineering-test", {
+            reset_assignment_limits = function()
+                storage.assignment_limits = {}
+            end,
+            try_assign_task_capped = function(spider_id, task, anchor_id)
+                return assign_task_capped(spider_id, task, anchor_id)
+            end,
+            get_assignment_count = function(anchor_id)
+                local limit = get_assignment_limit(anchor_id)
+                return limit and limit.count or 0
+            end,
+        })
+    end
+    require("__factorio-test__/init")(
+        { "tests/assignment_limit_test" },
+        {
+            log_passed_tests = true,
+            log_skipped_tests = true,
+        }
+    )
+end

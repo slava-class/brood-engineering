@@ -1,0 +1,21 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "brood-engineering-dev",
+      "devDependencies": {
+        "factorio-test-cli": "^2.0.0",
+      },
+    },
+  },
+  "packages": {
+    "chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
+
+    "commander": ["commander@12.1.0", "", {}, "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="],
+
+    "factorio-test-cli": ["factorio-test-cli@2.0.0", "", { "dependencies": { "chalk": "^5.3.0", "commander": "^12.1.0", "factoriomod-debug": "^2.0.3" }, "bin": { "factorio-test": "cli.js" } }, "sha512-UTkKcmWeLiRpVVEGDQ9mgCxB3smKd0pB5UdGRbrrmrIX5bqxlO+7HtEZbnyypSKSrjDN+fY5kK+de6XelJ36MA=="],
+
+    "factoriomod-debug": ["factoriomod-debug@2.0.9", "", { "bin": { "fmtk": "dist/fmtk-cli.js", "factoriomod-debug": "dist/fmtk-cli.js" } }, "sha512-E8tjmYmjlSfjarPIeLspwD2PurrwPZJTqL+ejgbfooBTblUBEgOh8CiJjPHqz9DFCLU2FRn10pkhwYFrSc/u+w=="],
+  }
+}

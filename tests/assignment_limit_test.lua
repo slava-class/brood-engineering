@@ -1,0 +1,34 @@
+local constants = require("scripts/constants")
+
+describe("assignment limiter", function()
+    local original_max
+
+    before_each(function()
+        original_max = constants.max_assignments_per_tick
+        remote.call("brood-engineering-test", "reset_assignment_limits")
+    end)
+
+    after_each(function()
+        constants.max_assignments_per_tick = original_max
+    end)
+
+    test("caps assignments per anchor per tick", function()
+        constants.max_assignments_per_tick = 2
+
+        assert.is_true(remote.call("brood-engineering-test", "try_assign_task_capped", "s1", { id = "t1" }, "a1"))
+        assert.is_true(remote.call("brood-engineering-test", "try_assign_task_capped", "s2", { id = "t2" }, "a1"))
+        assert.is_false(remote.call("brood-engineering-test", "try_assign_task_capped", "s3", { id = "t3" }, "a1"))
+        assert.are_equal(2, remote.call("brood-engineering-test", "get_assignment_count", "a1"))
+    end)
+
+    test("resets cap on the next tick", function()
+        constants.max_assignments_per_tick = 1
+
+        assert.is_true(remote.call("brood-engineering-test", "try_assign_task_capped", "s1", { id = "t1" }, "a1"))
+        assert.is_false(remote.call("brood-engineering-test", "try_assign_task_capped", "s2", { id = "t2" }, "a1"))
+
+        after_ticks(1, function()
+            assert.is_true(remote.call("brood-engineering-test", "try_assign_task_capped", "s3", { id = "t3" }, "a1"))
+        end)
+    end)
+end)

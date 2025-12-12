@@ -86,3 +86,28 @@ Built for Factorio 2.0. Should be compatible with most mods. If you encounter is
 ## Credits
 
 Inspired by the Spiderbots mod by asher_sky. Rebuilt from scratch with a cleaner architecture for extensibility.
+
+## Development
+
+### Running tests (FactorioTest)
+
+This repo includes a small in-game test suite under `tests/` that runs via FactorioTest.
+
+Prerequisites:
+
+- Factorio 2.0 installed locally.
+- `bun` installed via `mise` (see `.mise.toml`).
+- Node 18+ available on PATH (needed because FactorioTest CLI currently calls `npx fmtk` internally).
+
+Setup:
+
+1. Install tools: `mise install`
+2. Install dev dependencies: `bun install`
+3. Run tests: `bun run test:factorio -- --factorio-path /path/to/factorio`
+
+Notes:
+
+- The CLI creates an isolated data dir at `./factorio-test-data-dir` by default.
+- Only `brood-engineering` and `factorio-test` are enabled unless you pass `--mods ...`.
+- Extra args after `--` are forwarded to Factorio (e.g., `--disable-audio --graphics-quality low`).
+- On macOS app bundles, FactorioTest CLI may generate an incorrect `read-data` path. If you see “There is no package core…”, edit `factorio-test-data-dir/config.ini` to use `read-data=__PATH__executable__/../data` (or an absolute path to `factorio.app/Contents/data`). The CLI will keep that line on subsequent runs.

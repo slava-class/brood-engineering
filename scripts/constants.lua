@@ -24,10 +24,10 @@ local constants = {
     max_spiders_per_anchor = 200,
 
     -- Maximum task assignments per tick (prevents lag spikes)
-    max_assignments_per_tick = 4,
+    max_assignments_per_tick = 8,
 
     -- Maximum spider deployments per tick
-    max_deploys_per_tick = 2,
+    max_deploys_per_tick = 8,
 
     ---------------------------------------------------------------------------
     -- TIMING (ticks, 60 ticks = 1 second)
@@ -35,6 +35,9 @@ local constants = {
 
     -- How long spider waits near anchor before recalling
     idle_timeout_ticks = 240,  -- 4 seconds
+
+    -- How long an anchor can have no work before recalling idle spiders
+    no_work_recall_timeout_ticks = 300, -- 5 seconds
 
     -- Main loop interval
     main_loop_interval = 30,  -- twice per second

@@ -1,0 +1,7 @@
+[tools]
+# Bun for installing/running JS tooling (FactorioTest CLI).
+bun = "latest"
+# FactorioTest CLI currently shells out to `npx fmtk ...`,
+# so Node (and npm/npx) is still required for now.
+node = "20"
+
