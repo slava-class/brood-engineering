@@ -618,10 +618,16 @@ if script.active_mods and script.active_mods["factorio-test"] then
                 local limit = get_assignment_limit(anchor_id)
                 return limit and limit.count or 0
             end,
+            run_main_loop = function()
+                local prev = storage.global_enabled
+                storage.global_enabled = true
+                main_loop()
+                storage.global_enabled = prev
+            end,
         })
     end
     require("__factorio-test__/init")(
-        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test" },
+        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test" },
         {
             log_passed_tests = true,
             log_skipped_tests = true,

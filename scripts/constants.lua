@@ -37,7 +37,9 @@ local constants = {
     idle_timeout_ticks = 240,  -- 4 seconds
 
     -- How long an anchor can have no work before recalling idle spiders
-    no_work_recall_timeout_ticks = 300, -- 5 seconds
+    -- How long an anchor can have no work before recalling idle spiders
+    -- (2 seconds gives a quick cleanup once an area is finished)
+    no_work_recall_timeout_ticks = 120, -- 2 seconds
 
     -- Main loop interval
     main_loop_interval = 30,  -- twice per second
