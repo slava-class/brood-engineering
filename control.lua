@@ -621,7 +621,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         })
     end
     require("__factorio-test__/init")(
-        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test" },
+        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test" },
         {
             log_passed_tests = true,
             log_skipped_tests = true,
