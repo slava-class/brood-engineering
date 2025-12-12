@@ -5,3 +5,7 @@ bun = "latest"
 # so Node (and npm/npx) is still required for now.
 node = "20"
 
+[tasks.factorio-test]
+run = '''
+bun run --bun test:factorio -- --factorio-path "~/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio"
+'''
