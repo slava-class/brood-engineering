@@ -272,6 +272,24 @@ function spider.clear_task(spider_id)
     -- Resume following anchor
     local spider_entity = spider_data.entity
     if spider_entity and spider_entity.valid then
+        -- Clear any queued autopilot destinations as well as the current one.
+        -- Some LuaEntity keys are not safe to probe directly; use pcall.
+        pcall(function()
+            if spider_entity.clear_autopilot_destinations then
+                spider_entity.clear_autopilot_destinations()
+            end
+        end)
+        pcall(function()
+            local destinations = spider_entity.autopilot_destinations
+            if destinations then
+                for i = #destinations, 1, -1 do
+                    spider_entity.remove_autopilot_destination(i)
+                end
+            end
+        end)
+        pcall(function()
+            spider_entity.autopilot_destinations = {}
+        end)
         spider_entity.autopilot_destination = nil
         local anchor_entity = anchor_data.entity
         if anchor_entity and anchor_entity.valid then
