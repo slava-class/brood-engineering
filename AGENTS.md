@@ -24,6 +24,16 @@ macOS note:
 
 - `factorio-test-data-dir/config.ini` must use `read-data=__PATH__executable__/../data` for app bundles. Keep that line if you recreate the data dir.
 
+## Local Factorio API Docs
+
+- The full Factorio Lua API docs are vendored under `factorio-api-docs/` for offline reference.
+- Entry points: `factorio-api-docs/index-runtime.html` (runtime) and `factorio-api-docs/index-prototype.html` (prototypes).
+
+## Tile Deconstruction Gotcha
+
+- Tiles ordered for deconstruction also create `deconstructible-tile-proxy` entities which are marked `to_be_deconstructed`.
+- Do not treat those proxies as entity deconstruction work; tile deconstruction must be handled via `LuaEntity.mine_tile` (see `scripts/behaviors/deconstruct_tile.lua`), and `deconstruct_entity` should ignore `entity.type == "deconstructible-tile-proxy"` to avoid double-counting tasks/spawning extra spiders.
+
 ## Adding tests
 
 - Test files live under `tests/` as Lua modules.
