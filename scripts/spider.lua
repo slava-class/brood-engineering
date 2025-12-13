@@ -178,11 +178,115 @@ function spider.recall(spider_id)
     -- Return item to inventory if entity is valid
     if spider_entity and spider_entity.valid then
         local inventory = anchor.get_inventory(anchor_data)
-        if inventory then
-            inventory.insert({ name = "spiderling", count = 1 })
-        end
-        spider_entity.destroy({ raise_destroy = false })
-    end
+        local anchor_entity = anchor_data.entity
+	        local spill_surface = spider_entity.surface or (anchor_entity and anchor_entity.valid and anchor_entity.surface) or nil
+	        local spill_position = spider_entity.position or (anchor_entity and anchor_entity.valid and anchor_entity.position) or nil
+	        local spill_force = (anchor_entity and anchor_entity.valid and anchor_entity.force) or spider_entity.force
+
+	        local function spill(stack)
+	            if not (spill_surface and spill_position and stack) then return end
+	            local safe_stack = { name = stack.name, count = stack.count }
+	            if stack.quality and stack.quality ~= "normal" then
+	                safe_stack.quality = stack.quality
+	            end
+	            local force_id = (type(spill_force) == "table" and spill_force.name) or spill_force
+
+	            local ok, created_or_err = pcall(spill_surface.spill_item_stack, {
+	                position = spill_position,
+	                stack = safe_stack,
+	                enable_looted = true,
+	                allow_belts = false,
+	                max_radius = 0,
+	                use_start_position_on_failure = true,
+	                force = force_id,
+	            })
+
+	            local created = ok and created_or_err or nil
+	            if created and #created > 0 then return end
+
+	            if not ok then
+	                utils.log("spill_item_stack failed: " .. tostring(created_or_err))
+	            end
+
+	            local ok2, created2_or_err = pcall(spill_surface.spill_item_stack, {
+	                position = spill_position,
+	                stack = safe_stack,
+	                max_radius = 0,
+	                use_start_position_on_failure = true,
+	            })
+	            local created2 = ok2 and created2_or_err or nil
+	            if created2 and #created2 > 0 then return end
+
+	            if not ok2 then
+	                utils.log("spill_item_stack fallback failed: " .. tostring(created2_or_err))
+	            end
+
+	            -- Final fallback: spawn the item directly (used in spider.on_death too).
+	            local drop_position = spill_position
+	            pcall(function()
+	                local pos = spill_surface.find_non_colliding_position("item-on-ground", spill_position, 10, 0.5)
+	                if pos then
+	                    drop_position = pos
+	                end
+	            end)
+
+	            local item_on_ground = spill_surface.create_entity({
+	                name = "item-on-ground",
+	                position = drop_position,
+	                force = force_id,
+	                stack = safe_stack,
+	            })
+	            if item_on_ground and item_on_ground.valid then
+	                item_on_ground.to_be_looted = true
+	                if item_on_ground.order_deconstruction then
+	                    pcall(item_on_ground.order_deconstruction, item_on_ground, force_id)
+	                end
+	            end
+	        end
+
+	        if inventory and inventory.valid then
+            -- Return any items the spider is carrying (trunk/ammo/trash) to the anchor inventory.
+            local inventory_ids = {
+                defines.inventory.spider_trunk,
+                defines.inventory.spider_ammo,
+                defines.inventory.spider_trash,
+            }
+            for _, inv_id in ipairs(inventory_ids) do
+                ---@diagnostic disable-next-line: param-type-mismatch
+                local spider_inv = spider_entity.get_inventory(inv_id)
+                if spider_inv and spider_inv.valid then
+                    for i = 1, #spider_inv do
+                        local stack = spider_inv[i]
+                        if stack and stack.valid_for_read then
+                            local inserted = inventory.insert(stack)
+                            if inserted and inserted > 0 then
+                                stack.count = stack.count - inserted
+                                if stack.count <= 0 then
+                                    stack.clear()
+                                end
+                            end
+
+	                            if stack and stack.valid_for_read and stack.count and stack.count > 0 then
+	                                local quality = stack.quality
+	                                local quality_name = type(quality) == "table" and quality.name or quality
+	                                spill({ name = stack.name, count = stack.count, quality = quality_name })
+	                                stack.clear()
+	                            end
+	                        end
+	                    end
+                end
+            end
+
+	            local returned = inventory.insert({ name = "spiderling", count = 1 })
+	            if (returned or 0) < 1 then
+	                spill({ name = "spiderling", count = 1 })
+	            end
+	        else
+	            -- No valid anchor inventory; ensure the spiderling item isn't lost.
+	            spill({ name = "spiderling", count = 1 })
+	        end
+	        spider_entity.destroy({ raise_destroy = false })
+	    end
 
     -- Clean up tracking
     if spider_data.entity_id then
@@ -501,11 +605,12 @@ function spider.on_death(spider_entity)
     local position = spider_entity.position
     local force = spider_entity.force
 
-    local item_on_ground = surface.create_entity({
-        name = "item-on-ground",
-        position = position,
-        stack = { name = "spiderling", count = 1 },
-    })
+	    local item_on_ground = surface.create_entity({
+	        name = "item-on-ground",
+	        position = position,
+	        force = force,
+	        stack = { name = "spiderling", count = 1 },
+	    })
 
     if item_on_ground and item_on_ground.valid then
         item_on_ground.order_deconstruction(force)

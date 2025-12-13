@@ -29,6 +29,19 @@ macOS note:
 - The full Factorio Lua API docs are vendored under `factorio-api-docs/` for offline reference.
 - Entry points: `factorio-api-docs/index-runtime.html` (runtime) and `factorio-api-docs/index-prototype.html` (prototypes).
 
+## Formatting (StyLua)
+
+- Lua formatting is done with StyLua via mise.
+- Install: `mise install`
+- Format: `mise run fmt-lua`
+- Check only: `mise run fmt-lua-check`
+
+## Debug Logging (Tests)
+
+- FactorioTest runs default to quiet logs (debug logging is force-disabled in `control.lua` when `script.active_mods["factorio-test"]` is present).
+- Enable debug output for a specific test by calling `remote.call("brood-engineering-test", "set_debug_logging_override", true)` and reset with `false` when done.
+- Convenience helpers live in `tests/test_utils.lua` (for example, `test_utils.with_debug_logging(function() ... end)`).
+
 ## Tile Deconstruction Gotcha
 
 - Tiles ordered for deconstruction also create `deconstructible-tile-proxy` entities which are marked `to_be_deconstructed`.

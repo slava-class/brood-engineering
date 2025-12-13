@@ -4,6 +4,8 @@ bun = "latest"
 # FactorioTest CLI currently shells out to `npx fmtk ...`,
 # so Node (and npm/npx) is still required for now.
 node = "20"
+# Lua formatter.
+stylua = "latest"
 
 [tasks.factorio-test]
 run = '''
@@ -12,3 +14,9 @@ bun run --bun test:factorio -- --factorio-path "$HOME/Library/Application Suppor
 
 [tasks.test]
 run = "mise run factorio-test"
+
+[tasks.fmt-lua]
+run = "stylua control.lua data.lua settings.lua scripts tests"
+
+[tasks.fmt-lua-check]
+run = "stylua --check control.lua data.lua settings.lua scripts tests"

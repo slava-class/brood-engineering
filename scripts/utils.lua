@@ -3,6 +3,25 @@
 
 local utils = {}
 
+---@return boolean
+local function debug_logging_enabled()
+    local override = storage and storage.debug_logging_override
+    if override ~= nil then
+        return override == true
+    end
+
+    return settings
+        and settings.global
+        and settings.global["brood-debug-logging"]
+        and settings.global["brood-debug-logging"].value
+end
+
+--- Check whether debug logging is enabled.
+---@return boolean
+function utils.debug_enabled()
+    return debug_logging_enabled()
+end
+
 --- Calculate distance between two positions
 ---@param pos1 MapPosition
 ---@param pos2 MapPosition
@@ -192,6 +211,7 @@ end
 --- Log a message (debug helper)
 ---@param msg string
 function utils.log(msg)
+    if not debug_logging_enabled() then return end
     log("[Brood] " .. msg)
 end
 

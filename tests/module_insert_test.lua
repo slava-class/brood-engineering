@@ -114,9 +114,11 @@ describe("module insertion", function()
         assert.is_true(module_inventory and module_inventory.valid)
 
         local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "speed-module", count = 2, quality = "normal" })
+        local requested = 2
+        local supplied = 50
+        inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        track(surface.create_entity({
+        local proxy = track(surface.create_entity({
             name = "item-request-proxy",
             position = machine.position,
             force = force,
@@ -133,17 +135,24 @@ describe("module insertion", function()
                 },
             },
         }))
+        assert.is_true(proxy and proxy.valid)
 
         remote.call("brood-engineering-test", "run_main_loop")
 
-        async(60 * 20)
+        async(60 * 25)
         on_tick(function()
             if (game.tick % constants.main_loop_interval) == 0 then
                 remote.call("brood-engineering-test", "run_main_loop")
             end
 
-            if module_inventory.get_item_count({ name = "speed-module", quality = "normal" }) >= 2 then
-                assert.are_equal(0, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+            local count = module_inventory.get_item_count({ name = "speed-module", quality = "normal" })
+            assert.is_true(count <= requested)
+            if count == requested then
+                assert.are_equal(supplied - requested, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+                assert.is_true(not proxy.valid or (not proxy.item_requests or next(proxy.item_requests) == nil))
+                assert.is_true(not proxy.valid or not (proxy.insert_plan and proxy.insert_plan[1]))
+                assert.is_true(not proxy.valid or not (proxy.removal_plan and proxy.removal_plan[1]))
+
                 done()
                 return false
             end
@@ -168,9 +177,11 @@ describe("module insertion", function()
         assert.is_true(module_inventory and module_inventory.valid)
 
         local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "speed-module", count = 3, quality = "normal" })
+        local requested = 3
+        local supplied = 60
+        inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        track(surface.create_entity({
+        local proxy = track(surface.create_entity({
             name = "item-request-proxy",
             position = refinery.position,
             force = force,
@@ -188,17 +199,100 @@ describe("module insertion", function()
                 },
             },
         }))
+        assert.is_true(proxy and proxy.valid)
 
         remote.call("brood-engineering-test", "run_main_loop")
 
-        async(60 * 20)
+        async(60 * 25)
         on_tick(function()
             if (game.tick % constants.main_loop_interval) == 0 then
                 remote.call("brood-engineering-test", "run_main_loop")
             end
 
-            if module_inventory.get_item_count({ name = "speed-module", quality = "normal" }) >= 3 then
-                assert.are_equal(0, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+            local count = module_inventory.get_item_count({ name = "speed-module", quality = "normal" })
+            assert.is_true(count <= requested)
+            if count == requested then
+                assert.are_equal(supplied - requested, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+                assert.is_true(not proxy.valid or (not proxy.item_requests or next(proxy.item_requests) == nil))
+                assert.is_true(not proxy.valid or not (proxy.insert_plan and proxy.insert_plan[1]))
+                assert.is_true(not proxy.valid or not (proxy.removal_plan and proxy.removal_plan[1]))
+
+                done()
+                return false
+            end
+
+            return true
+        end)
+    end)
+
+    test("swaps a wrong module using removal_plan then clears proxy", function()
+        local target_pos = { x = base_pos.x + 52, y = base_pos.y }
+        clear_area(target_pos, 12)
+
+        local machine = track(surface.create_entity({
+            name = "assembling-machine-2",
+            position = target_pos,
+            direction = defines.direction.north,
+            force = force,
+        }))
+        assert.is_true(machine and machine.valid)
+
+        local module_inventory = machine.get_module_inventory()
+        assert.is_true(module_inventory and module_inventory.valid)
+
+        assert.is_true(module_inventory[1].set_stack({ name = "productivity-module", count = 1, quality = "normal" }))
+
+        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        inventory.insert({ name = "speed-module", count = 10, quality = "normal" })
+
+        local proxy = track(surface.create_entity({
+            name = "item-request-proxy",
+            position = machine.position,
+            force = force,
+            target = machine,
+            modules = {
+                {
+                    id = { name = "speed-module", quality = "normal" },
+                    items = {
+                        in_inventory = {
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 0, count = 1 },
+                        },
+                    },
+                },
+            },
+            removal_plan = {
+                {
+                    id = { name = "productivity-module", quality = "normal" },
+                    items = {
+                        in_inventory = {
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 0, count = 1 },
+                        },
+                    },
+                },
+            },
+        }))
+        assert.is_true(proxy and proxy.valid)
+
+        remote.call("brood-engineering-test", "run_main_loop")
+
+        async(60 * 25)
+        on_tick(function()
+            if (game.tick % constants.main_loop_interval) == 0 then
+                remote.call("brood-engineering-test", "run_main_loop")
+            end
+
+            local speed = module_inventory.get_item_count({ name = "speed-module", quality = "normal" })
+            local prod = module_inventory.get_item_count({ name = "productivity-module", quality = "normal" })
+            assert.is_true(speed <= 1)
+            assert.is_true(prod <= 1)
+
+            if speed == 1 and prod == 0 then
+                assert.are_equal(9, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+                assert.are_equal(1, inventory.get_item_count({ name = "productivity-module", quality = "normal" }))
+                assert.is_true(not proxy.valid or (not proxy.item_requests or next(proxy.item_requests) == nil))
+                assert.is_true(not proxy.valid or not (proxy.insert_plan and proxy.insert_plan[1]))
+                assert.is_true(not proxy.valid or not (proxy.removal_plan and proxy.removal_plan[1]))
+
                 done()
                 return false
             end

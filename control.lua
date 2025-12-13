@@ -8,10 +8,7 @@ local spider = require("scripts/spider")
 local tasks = require("scripts/tasks")
 
 local function debug_enabled()
-    return settings
-        and settings.global
-        and settings.global["brood-debug-logging"]
-        and settings.global["brood-debug-logging"].value
+    return utils.debug_enabled()
 end
 
 ---------------------------------------------------------------------------
@@ -714,6 +711,11 @@ end
 script.on_init(function()
     setup_storage()
 
+    -- Keep FactorioTest runs quiet by default; enable per-test via remote override.
+    if script.active_mods and script.active_mods["factorio-test"] and storage.debug_logging_override == nil then
+        storage.debug_logging_override = false
+    end
+
     -- Create anchors for existing players
     for _, player in pairs(game.players) do
         anchor.create_for_player(player)
@@ -723,6 +725,11 @@ end)
 
 script.on_configuration_changed(function()
     setup_storage()
+
+    -- Keep FactorioTest runs quiet by default; enable per-test via remote override.
+    if script.active_mods and script.active_mods["factorio-test"] and storage.debug_logging_override == nil then
+        storage.debug_logging_override = false
+    end
 
     -- Ensure all players have anchors
     for _, player in pairs(game.players) do
@@ -760,13 +767,16 @@ script.on_event(defines.events.on_trigger_created_entity, on_trigger_created_ent
 ---------------------------------------------------------------------------
 
 if script.active_mods and script.active_mods["factorio-test"] then
-    if remote and remote.add_interface and not (remote.interfaces and remote.interfaces["brood-engineering-test"]) then
-        remote.add_interface("brood-engineering-test", {
-            reset_assignment_limits = function()
-                storage.assignment_limits = {}
-            end,
-            try_assign_task_capped = function(spider_id, task, anchor_id)
-                return assign_task_capped(spider_id, task, anchor_id)
+	    if remote and remote.add_interface and not (remote.interfaces and remote.interfaces["brood-engineering-test"]) then
+	        remote.add_interface("brood-engineering-test", {
+	            set_debug_logging_override = function(enabled)
+	                storage.debug_logging_override = enabled
+	            end,
+	            reset_assignment_limits = function()
+	                storage.assignment_limits = {}
+	            end,
+	            try_assign_task_capped = function(spider_id, task, anchor_id)
+	                return assign_task_capped(spider_id, task, anchor_id)
             end,
             get_assignment_count = function(anchor_id)
                 local limit = get_assignment_limit(anchor_id)
@@ -802,7 +812,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
     end)
 
 	    require("__factorio-test__/init")(
-	        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test", "tests/build_entity_large_test", "tests/module_insert_test" },
+	        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test", "tests/build_entity_large_test", "tests/module_insert_test", "tests/recall_spill_test" },
 	        {
 	            log_passed_tests = true,
 	            log_skipped_tests = true,
