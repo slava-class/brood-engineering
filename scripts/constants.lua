@@ -8,7 +8,7 @@ local constants = {
     ---------------------------------------------------------------------------
 
     -- How far the anchor scans for tasks
-    anchor_scan_radius = 80,
+    anchor_scan_radius = 120,
 
     -- How far a spider scans for self-assignment
     spider_personal_radius = 10,
