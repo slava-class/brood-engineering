@@ -7,6 +7,13 @@ local anchor = require("scripts/anchor")
 local spider = require("scripts/spider")
 local tasks = require("scripts/tasks")
 
+local function debug_enabled()
+    return settings
+        and settings.global
+        and settings.global["brood-debug-logging"]
+        and settings.global["brood-debug-logging"].value
+end
+
 ---------------------------------------------------------------------------
 -- STORAGE INITIALIZATION
 ---------------------------------------------------------------------------
@@ -90,6 +97,38 @@ local function assign_task_capped(spider_id, task, anchor_id)
     if not limit or limit.count >= constants.max_assignments_per_tick then
         return false
     end
+
+    if debug_enabled() then
+        local target = task.tile or task.entity
+        local desc = "nil"
+        if target and target.valid then
+            if task.tile then
+                desc = string.format(
+                    "tile:%s@%.0f,%.0f",
+                    target.name,
+                    target.position.x,
+                    target.position.y
+                )
+            elseif task.entity then
+                desc = string.format(
+                    "entity:%s(%s)@%.1f,%.1f",
+                    target.name,
+                    target.type or "?",
+                    target.position.x,
+                    target.position.y
+                )
+            end
+        end
+        utils.log(string.format(
+            "[Assign] anchor=%s spider=%s behavior=%s task=%s %s",
+            tostring(anchor_id or "?"),
+            tostring(spider_id),
+            tostring(task.behavior_name or "?"),
+            tostring(task.id or "?"),
+            desc
+        ))
+    end
+
     spider.assign_task(spider_id, task)
     limit.count = limit.count + 1
     return true
@@ -262,8 +301,22 @@ local function main_loop()
             end
         end
 
+        local spider_count = anchor.get_spider_count(anchor_data)
+        local has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
+
+        -- Only compute the task list when we need it (assignment or sizing auto-deploy).
+        local available_tasks = nil
+        if work_exists and (
+            (#idle_at_anchor > 0 and assignments_this_tick < constants.max_assignments_per_tick) or
+            (has_spiderlings and spider_count < constants.max_spiders_per_anchor)
+        ) then
+            available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
+        end
+
         if #idle_at_anchor > 0 and assignments_this_tick < constants.max_assignments_per_tick then
-            local available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
+            if not available_tasks then
+                available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
+            end
 
             for _, spider_id in ipairs(idle_at_anchor) do
                 if #available_tasks == 0 then break end
@@ -276,17 +329,89 @@ local function main_loop()
             end
         end
 
-        -- Auto-deploy if work exists and below max
-        local spider_count = anchor.get_spider_count(anchor_data)
-        local has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
-
+        -- Auto-deploy: scale spiders to the amount of work, instead of deploying a full
+        -- burst every tick as long as any work exists.
         if has_spiderlings and spider_count < constants.max_spiders_per_anchor and work_exists then
+            if not available_tasks then
+                available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
+            end
+
+            local assigned_count = 0
+            for _, spider_data in pairs(anchor_data.spiders) do
+                if spider_data.task and spider_data.task.id then
+                    assigned_count = assigned_count + 1
+                end
+            end
+
+            local pending_tasks = assigned_count + #available_tasks
+            local desired_spiders = math.min(pending_tasks, constants.max_spiders_per_anchor)
+            local needed_spiders = desired_spiders - spider_count
+
+            if debug_enabled() and needed_spiders > 0 then
+                utils.log(string.format(
+                    "[Deploy] anchor=%s pending=%d assigned=%d unassigned=%d spiders=%d need=%d",
+                    anchor_id,
+                    pending_tasks,
+                    assigned_count,
+                    #available_tasks,
+                    spider_count,
+                    needed_spiders
+                ))
+
+                local counts = {}
+                for _, t in ipairs(available_tasks) do
+                    local name = t.behavior_name or "?"
+                    counts[name] = (counts[name] or 0) + 1
+                end
+                local parts = {}
+                for name, count in pairs(counts) do
+                    parts[#parts + 1] = string.format("%s=%d", name, count)
+                end
+                table.sort(parts)
+                utils.log("[Deploy] breakdown=" .. table.concat(parts, ", "))
+
+                local sample = {}
+                local sample_limit = math.min(#available_tasks, 16)
+                for i = 1, sample_limit do
+                    local t = available_tasks[i]
+                    local target = t.tile or t.entity
+                    if target and target.valid then
+                        if t.tile then
+                            sample[#sample + 1] = string.format(
+                                "%s:%s@%.0f,%.0f",
+                                tostring(t.behavior_name or "?"),
+                                target.name,
+                                target.position.x,
+                                target.position.y
+                            )
+                        elseif t.entity then
+                            sample[#sample + 1] = string.format(
+                                "%s:%s(%s)@%.1f,%.1f",
+                                tostring(t.behavior_name or "?"),
+                                target.name,
+                                target.type or "?",
+                                target.position.x,
+                                target.position.y
+                            )
+                        end
+                    else
+                        sample[#sample + 1] = tostring(t.behavior_name or "?") .. ":invalid"
+                    end
+                end
+                if #available_tasks > sample_limit then
+                    sample[#sample + 1] = string.format("...(+%d more)", #available_tasks - sample_limit)
+                end
+                utils.log("[Deploy] tasks=" .. table.concat(sample, ", "))
+            end
+
             local deploys = 0
-            while deploys < constants.max_deploys_per_tick and
+            while needed_spiders > 0 and
+                  deploys < constants.max_deploys_per_tick and
                   spider_count < constants.max_spiders_per_anchor and
                   has_spiderlings do
                 spider.deploy(anchor_id)
                 deploys = deploys + 1
+                needed_spiders = needed_spiders - 1
                 spider_count = anchor.get_spider_count(anchor_data)
                 has_spiderlings, spiderling_count = anchor.has_spiderlings_in_inventory(anchor_data)
             end

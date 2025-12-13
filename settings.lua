@@ -9,4 +9,11 @@ data:extend({
         default_value = true,
         order = "a",
     },
+    {
+        type = "bool-setting",
+        name = "brood-debug-logging",
+        setting_type = "runtime-global",
+        default_value = false,
+        order = "z",
+    },
 })
