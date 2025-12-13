@@ -8,13 +8,13 @@ local constants = {
     ---------------------------------------------------------------------------
 
     -- How far the anchor scans for tasks
-    anchor_scan_radius = 40,
+    anchor_scan_radius = 80,
 
     -- How far a spider scans for self-assignment
-    spider_personal_radius = 8,
+    spider_personal_radius = 10,
 
     -- Distance to be considered "near anchor" for recall
-    near_anchor_threshold = 5,
+    near_anchor_threshold = 10,
 
     ---------------------------------------------------------------------------
     -- COUNTS
@@ -24,7 +24,7 @@ local constants = {
     max_spiders_per_anchor = 200,
 
     -- Maximum task assignments per tick (prevents lag spikes)
-    max_assignments_per_tick = 8,
+    max_assignments_per_tick = 32,
 
     -- Maximum spider deployments per tick
     max_deploys_per_tick = 8,

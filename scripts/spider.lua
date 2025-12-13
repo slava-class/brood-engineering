@@ -185,21 +185,41 @@ function spider.complete_task(spider_id)
         storage.assigned_tasks[spider_data.task.id] = nil
     end
 
-    spider_data.task = nil
-    spider_data.status = "deployed_idle"
-    spider_data.idle_since = nil
+	    spider_data.task = nil
+	    spider_data.status = "deployed_idle"
+	    spider_data.idle_since = nil
 
-    update_spider_color(spider_data.entity, "deployed_idle")
+	    update_spider_color(spider_data.entity, "deployed_idle")
 
-    -- Set follow target back to anchor
-    local spider_entity = spider_data.entity
-    if spider_entity and spider_entity.valid then
-        local anchor_entity = anchor_data.entity
-        if anchor_entity and anchor_entity.valid then
-            spider_entity.follow_target = anchor_entity
-        end
-    end
-end
+	    -- Set follow target back to anchor
+	    local spider_entity = spider_data.entity
+	    if spider_entity and spider_entity.valid then
+	        -- Ensure any leftover autopilot destinations are cleared so the spider
+	        -- truly returns to idle/following state.
+	        pcall(function()
+	            if spider_entity.clear_autopilot_destinations then
+	                spider_entity.clear_autopilot_destinations()
+	            end
+	        end)
+	        pcall(function()
+	            local destinations = spider_entity.autopilot_destinations
+	            if destinations then
+	                for i = #destinations, 1, -1 do
+	                    spider_entity.remove_autopilot_destination(i)
+	                end
+	            end
+	        end)
+	        pcall(function()
+	            spider_entity.autopilot_destinations = {}
+	        end)
+	        spider_entity.autopilot_destination = nil
+
+	        local anchor_entity = anchor_data.entity
+	        if anchor_entity and anchor_entity.valid then
+	            spider_entity.follow_target = anchor_entity
+	        end
+	    end
+	end
 
 --- Assign a task to a spider
 ---@param spider_id string
@@ -336,11 +356,11 @@ function spider.teleport_to_anchor(spider_id)
     spider_entity.follow_target = anchor_entity
 end
 
---- Make spider jump (when stuck)
----@param spider_id string
-function spider.jump(spider_id)
-    local anchor_id = storage.spider_to_anchor[spider_id]
-    if not anchor_id then return end
+	--- Make spider jump (when stuck)
+	---@param spider_id string
+	function spider.jump(spider_id)
+	    local anchor_id = storage.spider_to_anchor[spider_id]
+	    if not anchor_id then return end
 
     local anchor_data = anchor.get(anchor_id)
     if not anchor_data then return end
@@ -352,45 +372,68 @@ function spider.jump(spider_id)
     if not spider_entity or not spider_entity.valid then return end
     local anchor_entity = anchor_data.entity
 
-    local surface = spider_entity.surface
-    local current_pos = spider_entity.position
+	    local surface = spider_entity.surface
+	    local current_pos = spider_entity.position
 
-    -- Jump in the direction spider is facing
-    local orientation = spider_entity.orientation or 0
-    local angle = orientation * 2 * math.pi
-    local jump_dist = constants.jump_distance
+	    -- Prefer jumping toward the current task to guarantee progress.
+	    local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
+	    if target and target.valid then
+	        local tp = target.position
+	        local dx = tp.x - current_pos.x
+	        local dy = tp.y - current_pos.y
+	        local dist = math.sqrt(dx * dx + dy * dy)
+	        local jump_dist = math.min(constants.jump_distance, dist)
 
-    local target_pos = {
-        x = current_pos.x + jump_dist * math.sin(angle),
-        y = current_pos.y - jump_dist * math.cos(angle),
-    }
+	        if dist > 0 and jump_dist > 0 then
+	            local desired_pos = {
+	                x = current_pos.x + (dx / dist) * jump_dist,
+	                y = current_pos.y + (dy / dist) * jump_dist,
+	            }
+	            local valid_pos = surface.find_non_colliding_position(
+	                "spiderling",
+	                desired_pos,
+	                constants.jump_distance * 2,
+	                0.5
+	            )
+	            if valid_pos then
+	                spider_entity.teleport(valid_pos)
+	            end
+	        end
 
-    local valid_pos = surface.find_non_colliding_position(
-        "spiderling",
-        target_pos,
-        jump_dist * 2,
-        0.5
-    )
+	        -- Re-path to current task after the hop.
+	        spider_entity.autopilot_destination = surface.find_non_colliding_position(
+	            "spiderling",
+	            tp,
+	            5,
+	            0.5
+	        ) or tp
+	        spider_data.stuck_since = nil
+	        return
+	    end
 
-    if valid_pos then
-        spider_entity.teleport(valid_pos)
-    end
+	    -- No valid task; jump in facing direction as a fallback.
+	    local orientation = spider_entity.orientation or 0
+	    local angle = orientation * 2 * math.pi
+	    local jump_dist = constants.jump_distance
+	    local fallback_pos = {
+	        x = current_pos.x + jump_dist * math.sin(angle),
+	        y = current_pos.y - jump_dist * math.cos(angle),
+	    }
+	    local valid_pos = surface.find_non_colliding_position(
+	        "spiderling",
+	        fallback_pos,
+	        jump_dist * 2,
+	        0.5
+	    )
+	    if valid_pos then
+	        spider_entity.teleport(valid_pos)
+	    end
 
-    -- Re-path to current task if still valid; otherwise clear task
-    local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
-    if target and target.valid then
-        spider_entity.autopilot_destination = surface.find_non_colliding_position(
-            "spiderling",
-            target.position,
-            5,
-            0.5
-        ) or target.position
-        spider_data.stuck_since = nil
-    else
-        spider.clear_task(spider_id)
-        spider_entity.follow_target = anchor_entity
-    end
-end
+	    spider.clear_task(spider_id)
+	    if anchor_entity and anchor_entity.valid then
+	        spider_entity.follow_target = anchor_entity
+	    end
+	end
 
 --- Handle spider death (drop as item)
 ---@param spider_entity LuaEntity

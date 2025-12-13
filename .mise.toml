@@ -7,5 +7,8 @@ node = "20"
 
 [tasks.factorio-test]
 run = '''
-bun run --bun test:factorio -- --factorio-path "~/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio"
+bun run --bun test:factorio -- --factorio-path "$HOME/Library/Application Support/Steam/steamapps/common/Factorio/factorio.app/Contents/MacOS/factorio" -- --disable-audio --cache-sprite-atlas
 '''
+
+[tasks.test]
+run = "mise run factorio-test"

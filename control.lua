@@ -21,6 +21,8 @@ local function setup_storage()
     storage.global_enabled = storage.global_enabled ~= false  -- default true
     storage.anchor_id_counter = storage.anchor_id_counter or 0
     storage.spider_id_counter = storage.spider_id_counter or 0
+    -- Deprecated: older versions used this for tile deconstruction confirmation.
+    storage.pending_tile_deconstruct = nil
 
     -- Clean up any non-serialisable task data from older versions
     -- (tasks should not keep behavior tables/functions in storage)
@@ -93,7 +95,7 @@ local function assign_task_capped(spider_id, task, anchor_id)
     return true
 end
 
-local function process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id)
+local function process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id, work_exists)
     local spider_entity = spider_data.entity
 
     -- Validate spider entity
@@ -132,8 +134,8 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             -- Track idle time
             if not spider_data.idle_since then
                 spider_data.idle_since = game.tick
-            elseif game.tick - spider_data.idle_since > constants.idle_timeout_ticks then
-                -- Been idle too long, recall
+            elseif not work_exists and game.tick - spider_data.idle_since > constants.idle_timeout_ticks then
+                -- Been idle too long with no work anywhere in the area, recall
                 spider.recall(spider_id)
                 return
             end
@@ -150,17 +152,31 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             end
         end
 
-    elseif status == "moving_to_task" then
-        -- Check if task is still valid
-        if not spider.is_task_valid(spider_data) then
-            spider.clear_task(spider_id)
-            return
-        end
+	    elseif status == "moving_to_task" then
+	        -- Check if task is still valid
+	        if not spider.is_task_valid(spider_data) then
+	            spider.clear_task(spider_id)
+	            return
+	        end
 
-    elseif status == "executing" then
-        -- Shouldn't stay in this state long (instant execution)
-        -- Just complete and move on
-        spider.complete_task(spider_id)
+	        -- If we're already close enough, execute even if the autopilot
+	        -- completion event doesn't fire (e.g., destination already reached).
+	        if spider.has_arrived(spider_data) then
+	            spider.arrive_at_task(spider_id)
+	            tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
+	            spider.complete_task(spider_id)
+	            return
+	        end
+
+	        -- Basic stuck recovery.
+	        if spider.is_stuck(spider_data) then
+	            spider.jump(spider_id)
+	        end
+
+	    elseif status == "executing" then
+	        -- Shouldn't stay in this state long (instant execution)
+	        -- Just complete and move on
+	        spider.complete_task(spider_id)
     end
 end
 
@@ -223,8 +239,8 @@ local function main_loop()
         if not surface then return end
         local force = anchor.get_force(anchor_data)
 
-        -- Check if any work exists in the area around this anchor
-        local work_exists = tasks.exist_in_area(surface, anchor_area, force)
+        -- Check if any executable work exists in the area around this anchor
+        local work_exists = tasks.exist_executable_in_area(surface, anchor_area, force, inventory)
 
         -- Process each spider
         local limit = get_assignment_limit(anchor_id)
@@ -232,7 +248,7 @@ local function main_loop()
 
         for spider_id, spider_data in utils.random_pairs(anchor_data.spiders) do
             if assignments_this_tick >= constants.max_assignments_per_tick then break end
-            process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id)
+            process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id, work_exists)
             limit = get_assignment_limit(anchor_id)
             assignments_this_tick = limit and limit.count or assignments_this_tick
         end
@@ -476,10 +492,21 @@ local function on_spider_command_completed(event)
         return
     end
 
-    -- Ensure autopilot has actually finished (no remaining destinations)
+    -- Ensure autopilot has actually finished.
+    -- In some cases Factorio fires on_spider_command_completed before the
+    -- destinations list is fully cleared; allow completion if we're already at the target.
     local destinations = vehicle.autopilot_destinations
     if destinations and #destinations > 0 then
-        return
+        -- Sometimes Factorio emits this event before clearing the destinations list.
+        -- For large tasks, spiders may stop at the destination without ever getting
+        -- within task_arrival_distance of the task center, so also accept proximity
+        -- to the current destination.
+        local last_dest = destinations[#destinations]
+        local dest_pos = last_dest and (last_dest.position or last_dest) or nil
+        local dist_to_dest = dest_pos and utils.distance(vehicle.position, dest_pos) or math.huge
+        if dist_to_dest > constants.task_arrival_distance and not spider.has_arrived(spider_data) then
+            return
+        end
     end
 
     local inventory = anchor.get_inventory(anchor_data)
@@ -500,7 +527,9 @@ local function on_spider_command_completed(event)
         local surface = anchor.get_surface(anchor_data)
         if surface then
             local anchor_area = anchor.get_expanded_work_area(anchor_data)
-            process_spider(spider_id, updated_spider_data, anchor_data, inventory, anchor_area, anchor_id)
+            local force = anchor.get_force(anchor_data)
+            local work_exists = tasks.exist_executable_in_area(surface, anchor_area, force, inventory)
+            process_spider(spider_id, updated_spider_data, anchor_data, inventory, anchor_area, anchor_id, work_exists)
         end
     end
 end
@@ -626,8 +655,29 @@ if script.active_mods and script.active_mods["factorio-test"] then
             end,
         })
     end
+
+    -- When running under FactorioTest via CLI, auto-start tests on the next tick.
+    -- This avoids needing to click "Reload mods and run tests" in the UI.
+    local function try_start_factoriotests()
+        if not remote or not remote.call or not remote.interfaces then return end
+        if remote.interfaces["factorio-test"] then
+            pcall(function()
+                remote.call("factorio-test", "runTests")
+            end)
+        elseif remote.interfaces["Factorio Test"] then
+            pcall(function()
+                remote.call("Factorio Test", "runTests")
+            end)
+        end
+    end
+
+    script.on_nth_tick(1, function()
+        try_start_factoriotests()
+        script.on_nth_tick(1, nil)
+    end)
+
     require("__factorio-test__/init")(
-        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test" },
+        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test" },
         {
             log_passed_tests = true,
             log_skipped_tests = true,

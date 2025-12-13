@@ -122,6 +122,29 @@ function tasks.exist_in_area(surface, area, force)
     return false
 end
 
+--- Check if any executable tasks exist in an area (i.e., can_execute passes)
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param force LuaForce[]
+---@param inventory LuaInventory
+---@return boolean
+function tasks.exist_executable_in_area(surface, area, force, inventory)
+    local behaviors = get_behaviors()
+
+    for _, behavior in ipairs(behaviors) do
+        local targets = behavior.find_tasks(surface, area, force)
+        if targets and #targets > 0 then
+            for _, target in ipairs(targets) do
+                if behavior.can_execute(target, inventory) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 --- Execute a task
 ---@param spider_data table
 ---@param task table

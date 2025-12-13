@@ -92,5 +92,27 @@ describe("tasks", function()
         assert.is_not_nil(task2)
         assert.are_equal("build_entity", task2.behavior_name)
     end)
-end)
 
+    test("exist_executable_in_area ignores blocked ghosts", function()
+        local pos = { x = base_pos.x + 30, y = base_pos.y }
+
+        local chest = track(surface.create_entity({
+            name = "wooden-chest",
+            position = { x = pos.x + 3, y = pos.y },
+            force = force,
+        }))
+        local inventory = chest.get_inventory(defines.inventory.chest)
+
+        track(surface.create_entity({
+            name = "entity-ghost",
+            inner_name = "stone-furnace",
+            position = pos,
+            force = force,
+            expires = false,
+        }))
+
+        local area = { { pos.x - 3, pos.y - 3 }, { pos.x + 3, pos.y + 3 } }
+        assert.is_true(tasks.exist_in_area(surface, area, { force.name, "neutral" }))
+        assert.is_false(tasks.exist_executable_in_area(surface, area, { force.name, "neutral" }, inventory))
+    end)
+end)

@@ -13,7 +13,7 @@ Steps:
 3. Launch the test scenario:
    - Preferred: `mise run factorio-test` (task defined in `.mise.toml`).
    - Or directly: `bun run --bun test:factorio -- --factorio-path "/path/to/factorio"`
-4. When Factorio opens, click the FactorioTest UI button **“Reload mods and run tests”** to execute the suite.
+4. When Factorio opens, tests should auto-start; if they don’t, click **“Reload mods and run tests”** in the FactorioTest UI.
 
 Logs:
 
@@ -29,4 +29,3 @@ macOS note:
 - Test files live under `tests/` as Lua modules.
 - Register new modules in the FactorioTest init list in `control.lua` (under the `script.active_mods["factorio-test"]` gate).
 - Any helper interfaces for tests should be added only inside that gate so they never ship into normal gameplay.
-
