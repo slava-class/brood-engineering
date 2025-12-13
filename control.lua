@@ -802,7 +802,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
     end)
 
 	    require("__factorio-test__/init")(
-	        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test", "tests/build_entity_large_test" },
+	        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test", "tests/build_entity_large_test", "tests/module_insert_test" },
 	        {
 	            log_passed_tests = true,
 	            log_skipped_tests = true,

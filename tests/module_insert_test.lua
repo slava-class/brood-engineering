@@ -1,8 +1,7 @@
 local spider = require("scripts/spider")
-local anchor = require("scripts/anchor")
 local constants = require("scripts/constants")
 
-describe("build large entity ghosts", function()
+describe("module insertion", function()
     local surface
     local force
     local base_pos
@@ -19,7 +18,7 @@ describe("build large entity ghosts", function()
         return entity
     end
 
-    local function clear_build_area(position, radius)
+    local function clear_area(position, radius)
         local tiles = {}
         for y = position.y - radius, position.y + radius do
             for x = position.x - radius, position.x + radius do
@@ -43,7 +42,7 @@ describe("build large entity ghosts", function()
     before_each(function()
         surface = game.surfaces[1]
         force = game.forces.player
-        base_pos = { x = 7000 + math.random(0, 50), y = math.random(-20, 20) }
+        base_pos = { x = 8000 + math.random(0, 50), y = math.random(-20, 20) }
         created = {}
 
         original_global_enabled = storage.global_enabled
@@ -66,7 +65,7 @@ describe("build large entity ghosts", function()
         local inventory = anchor_entity.get_inventory(defines.inventory.chest)
         inventory.insert({ name = "spiderling", count = 10 })
 
-        anchor_id = "test_anchor_build_large_" .. game.tick .. "_" .. math.random(1, 1000000)
+        anchor_id = "test_anchor_modules_" .. game.tick .. "_" .. math.random(1, 1000000)
         anchor_data = {
             type = "test",
             entity = anchor_entity,
@@ -99,34 +98,52 @@ describe("build large entity ghosts", function()
         end
     end)
 
-    test("builds a stone furnace ghost (2x2)", function()
-        local ghost_pos = { x = base_pos.x + 10, y = base_pos.y }
+    test("inserts modules into an assembling machine (3x3)", function()
+        local target_pos = { x = base_pos.x + 18, y = base_pos.y }
+        clear_area(target_pos, 12)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "stone-furnace", count = 1, quality = "normal" })
-
-        clear_build_area(ghost_pos, 8)
-
-        track(surface.create_entity({
-            name = "entity-ghost",
-            inner_name = "stone-furnace",
-            position = ghost_pos,
+        local machine = track(surface.create_entity({
+            name = "assembling-machine-2",
+            position = target_pos,
             direction = defines.direction.north,
             force = force,
-            expires = false,
+        }))
+        assert.is_true(machine and machine.valid)
+
+        local module_inventory = machine.get_module_inventory()
+        assert.is_true(module_inventory and module_inventory.valid)
+
+        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        inventory.insert({ name = "speed-module", count = 2, quality = "normal" })
+
+        track(surface.create_entity({
+            name = "item-request-proxy",
+            position = machine.position,
+            force = force,
+            target = machine,
+            modules = {
+                {
+                    id = { name = "speed-module", quality = "normal" },
+                    items = {
+                        in_inventory = {
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 0, count = 1 },
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 1, count = 1 },
+                        },
+                    },
+                },
+            },
         }))
 
         remote.call("brood-engineering-test", "run_main_loop")
 
-        async(60 * 30)
+        async(60 * 20)
         on_tick(function()
             if (game.tick % constants.main_loop_interval) == 0 then
                 remote.call("brood-engineering-test", "run_main_loop")
             end
 
-            local furnace = surface.find_entity("stone-furnace", ghost_pos)
-            if furnace and furnace.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "stone-furnace", quality = "normal" }))
+            if module_inventory.get_item_count({ name = "speed-module", quality = "normal" }) >= 2 then
+                assert.are_equal(0, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
                 done()
                 return false
             end
@@ -135,106 +152,53 @@ describe("build large entity ghosts", function()
         end)
     end)
 
-    test("builds an assembling machine ghost (3x3)", function()
-        local ghost_pos = { x = base_pos.x + 14, y = base_pos.y }
+    test("inserts modules into an oil refinery (5x5)", function()
+        local target_pos = { x = base_pos.x + 34, y = base_pos.y }
+        clear_area(target_pos, 15)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "assembling-machine-2", count = 1, quality = "normal" })
-
-        clear_build_area(ghost_pos, 10)
-
-        track(surface.create_entity({
-            name = "entity-ghost",
-            inner_name = "assembling-machine-2",
-            position = ghost_pos,
+        local refinery = track(surface.create_entity({
+            name = "oil-refinery",
+            position = target_pos,
             direction = defines.direction.north,
             force = force,
-            expires = false,
+        }))
+        assert.is_true(refinery and refinery.valid)
+
+        local module_inventory = refinery.get_module_inventory()
+        assert.is_true(module_inventory and module_inventory.valid)
+
+        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        inventory.insert({ name = "speed-module", count = 3, quality = "normal" })
+
+        track(surface.create_entity({
+            name = "item-request-proxy",
+            position = refinery.position,
+            force = force,
+            target = refinery,
+            modules = {
+                {
+                    id = { name = "speed-module", quality = "normal" },
+                    items = {
+                        in_inventory = {
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 0, count = 1 },
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 1, count = 1 },
+                            { inventory = defines.inventory.assembling_machine_modules, stack = 2, count = 1 },
+                        },
+                    },
+                },
+            },
         }))
 
         remote.call("brood-engineering-test", "run_main_loop")
 
-        async(60 * 30)
+        async(60 * 20)
         on_tick(function()
             if (game.tick % constants.main_loop_interval) == 0 then
                 remote.call("brood-engineering-test", "run_main_loop")
             end
 
-            local machine = surface.find_entity("assembling-machine-2", ghost_pos)
-            if machine and machine.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "assembling-machine-2", quality = "normal" }))
-                done()
-                return false
-            end
-
-            return true
-        end)
-    end)
-
-    test("builds an oil refinery ghost (5x5)", function()
-        local ghost_pos = { x = base_pos.x + 18, y = base_pos.y }
-
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "oil-refinery", count = 1, quality = "normal" })
-
-        clear_build_area(ghost_pos, 12)
-
-        track(surface.create_entity({
-            name = "entity-ghost",
-            inner_name = "oil-refinery",
-            position = ghost_pos,
-            direction = defines.direction.north,
-            force = force,
-            expires = false,
-        }))
-
-        remote.call("brood-engineering-test", "run_main_loop")
-
-        async(60 * 40)
-        on_tick(function()
-            if (game.tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
-
-            local refinery = surface.find_entity("oil-refinery", ghost_pos)
-            if refinery and refinery.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "oil-refinery", quality = "normal" }))
-                done()
-                return false
-            end
-
-            return true
-        end)
-    end)
-
-    test("builds a rocket silo ghost (9x9)", function()
-        local ghost_pos = { x = base_pos.x + 32, y = base_pos.y }
-
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "rocket-silo", count = 1, quality = "normal" })
-
-        clear_build_area(ghost_pos, 15)
-
-        track(surface.create_entity({
-            name = "entity-ghost",
-            inner_name = "rocket-silo",
-            position = ghost_pos,
-            direction = defines.direction.north,
-            force = force,
-            expires = false,
-        }))
-
-        remote.call("brood-engineering-test", "run_main_loop")
-
-        async(60 * 40)
-        on_tick(function()
-            if (game.tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
-
-            local silo = surface.find_entity("rocket-silo", ghost_pos)
-            if silo and silo.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "rocket-silo", quality = "normal" }))
+            if module_inventory.get_item_count({ name = "speed-module", quality = "normal" }) >= 3 then
+                assert.are_equal(0, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
                 done()
                 return false
             end
