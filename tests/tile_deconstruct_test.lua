@@ -1,5 +1,6 @@
 local spider = require("scripts/spider")
 local anchor = require("scripts/anchor")
+local tasks = require("scripts/tasks")
 local constants = require("scripts/constants")
 
 describe("tile deconstruction", function()
@@ -112,6 +113,68 @@ describe("tile deconstruction", function()
             end
 
             return true
+        end)
+    end)
+
+    test("auto-deploy mines multiple deconstruct-marked tiles without double-counting proxies", function()
+        local tile_positions = {
+            { x = base_pos.x + 2, y = base_pos.y },
+            { x = base_pos.x + 3, y = base_pos.y },
+            { x = base_pos.x + 2, y = base_pos.y + 1 },
+            { x = base_pos.x + 3, y = base_pos.y + 1 },
+        }
+
+        for _, tile_pos in ipairs(tile_positions) do
+            surface.set_tiles({ { name = "grass-1", position = tile_pos } }, true)
+            surface.set_tiles({ { name = "stone-path", position = tile_pos } }, true)
+
+            local tile = surface.get_tile(tile_pos)
+            tile.order_deconstruction(force)
+        end
+
+        local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+        inventory.insert({ name = "spiderling", count = 50 })
+
+        local anchor_area = anchor.get_expanded_work_area(anchor_data)
+        local force_filter = anchor.get_force(anchor_data)
+        local available = tasks.find_all(surface, anchor_area, force_filter, inventory)
+
+        assert.are_equal(#tile_positions, #available)
+        for _, task in ipairs(available) do
+            assert.are_equal("deconstruct_tile", task.behavior_name)
+        end
+
+        remote.call("brood-engineering-test", "run_main_loop")
+
+        local deployed = 0
+        for _ in pairs(anchor_data.spiders) do
+            deployed = deployed + 1
+        end
+        assert.are_equal(#tile_positions, deployed)
+
+        async(60 * 20)
+        on_tick(function()
+            if (game.tick % constants.main_loop_interval) == 0 then
+                remote.call("brood-engineering-test", "run_main_loop")
+            end
+
+            for _, tile_pos in ipairs(tile_positions) do
+                local current_tile = surface.get_tile(tile_pos)
+                if current_tile and current_tile.valid and current_tile.name == "stone-path" then
+                    return true
+                end
+            end
+
+            local final_inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+            if final_inventory.get_item_count("stone-brick") < #tile_positions then
+                return true
+            end
+
+            for _, tile_pos in ipairs(tile_positions) do
+                assert.are_equal("grass-1", surface.get_tile(tile_pos).name)
+            end
+            done()
+            return false
         end)
     end)
 end)

@@ -15,11 +15,22 @@ local behavior = {
 ---@param force LuaForce[]
 ---@return LuaEntity[]
 function behavior.find_tasks(surface, area, force)
-    return surface.find_entities_filtered({
+    local entities = surface.find_entities_filtered({
         area = area,
         force = force,
         to_be_deconstructed = true,
     })
+
+    -- Tiles marked for deconstruction create hidden `deconstructible-tile-proxy` entities.
+    -- Those must be handled by the tile behavior (mine_tile) so we don't double-count work
+    -- and so we don't accidentally cancel the tile order by destroying the proxy.
+    local result = {}
+    for _, entity in ipairs(entities) do
+        if entity and entity.valid and entity.type ~= "deconstructible-tile-proxy" then
+            result[#result + 1] = entity
+        end
+    end
+    return result
 end
 
 --- Get items that would be returned when mining an entity
@@ -65,6 +76,7 @@ function behavior.can_execute(entity, inventory)
     if not entity or not entity.valid then return false end
     if not entity.to_be_deconstructed() then return false end
     if not inventory or not inventory.valid then return false end
+    if entity.type == "deconstructible-tile-proxy" then return false end
     
     -- Cliffs need explosives
     if entity.type == "cliff" then
@@ -98,6 +110,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
     if not entity or not entity.valid then return false end
     if not entity.to_be_deconstructed() then return false end
     if not inventory or not inventory.valid then return false end
+    if entity.type == "deconstructible-tile-proxy" then return false end
     
     -- Handle cliffs specially
     if entity.type == "cliff" then
