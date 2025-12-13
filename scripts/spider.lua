@@ -7,6 +7,48 @@ local anchor = require("scripts/anchor")
 
 local spider = {}
 
+---@param spider_entity LuaEntity
+---@param ghost LuaEntity
+---@return MapPosition? destination
+local function get_build_entity_approach_position(spider_entity, ghost)
+    if not (spider_entity and spider_entity.valid) then return nil end
+    if not (ghost and ghost.valid and ghost.type == "entity-ghost") then return nil end
+
+    local surface = spider_entity.surface
+    if not (surface and (surface.valid == nil or surface.valid)) then return nil end
+
+    local box = ghost.bounding_box
+    if not (box and box.left_top and box.right_bottom) then return nil end
+
+    -- Keep well clear of the ghost footprint. Large ghosts (5x5+) can fail to revive if the
+    -- spider (or its legs) overlaps the future collision box.
+    local padding = math.max(constants.task_arrival_distance + 0.5, 4)
+    local mid_x = (box.left_top.x + box.right_bottom.x) / 2
+    local mid_y = (box.left_top.y + box.right_bottom.y) / 2
+
+    local candidates = {
+        { x = box.left_top.x - padding, y = mid_y },
+        { x = box.right_bottom.x + padding, y = mid_y },
+        { x = mid_x, y = box.left_top.y - padding },
+        { x = mid_x, y = box.right_bottom.y + padding },
+    }
+
+    local best = nil
+    local best_dist = nil
+    for _, candidate in ipairs(candidates) do
+        local pos = surface.find_non_colliding_position("spiderling", candidate, 10, 0.5)
+        if pos then
+            local dist = utils.distance(spider_entity.position, pos)
+            if not best_dist or dist < best_dist then
+                best = pos
+                best_dist = dist
+            end
+        end
+    end
+
+    return best
+end
+
 --- Generate unique spider ID
 ---@return string
 local function generate_spider_id()
@@ -253,15 +295,27 @@ function spider.assign_task(spider_id, task)
     if target and target.valid then
         spider_entity.follow_target = nil
 
-        -- Find non-colliding position near target
-        local target_pos = target.position
         local surface = spider_entity.surface
-        local dest = surface.find_non_colliding_position(
-            "spiderling",
-            target_pos,
-            5,
-            0.5
-        ) or target_pos
+        local target_pos = target.position
+
+        -- For large entity ghosts, approach from outside the footprint so the spider/legs
+        -- don't block `ghost.revive()` collisions during placement.
+        local dest = nil
+        if task.behavior_name == "build_entity" and target.object_name == "LuaEntity" and target.type == "entity-ghost" then
+            dest = get_build_entity_approach_position(spider_entity, target)
+        end
+
+        -- Default: find a nearby non-colliding position close to the target.
+        if not dest then
+            dest = surface.find_non_colliding_position(
+                "spiderling",
+                target_pos,
+                5,
+                0.5
+            ) or target_pos
+        end
+
+        task.approach_position = dest
 
         spider_entity.autopilot_destination = dest
     end
@@ -485,7 +539,8 @@ function spider.has_arrived(spider_data)
     local target = spider_data.task.entity or spider_data.task.tile
     if not target or not target.valid then return false end
 
-    local dist = utils.distance(spider_entity.position, target.position)
+    local arrive_pos = spider_data.task.approach_position or target.position
+    local dist = utils.distance(spider_entity.position, arrive_pos)
     return dist < constants.task_arrival_distance
 end
 
@@ -503,8 +558,8 @@ function spider.is_stuck(spider_data)
 
     local speed = spider_entity.speed or 0
     local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
-    local target_pos = target and target.valid and target.position or nil
-    local dist = target_pos and utils.distance(spider_entity.position, target_pos) or math.huge
+    local arrive_pos = spider_data.task and spider_data.task.approach_position or (target and target.valid and target.position) or nil
+    local dist = arrive_pos and utils.distance(spider_entity.position, arrive_pos) or math.huge
 
     -- Reset timer if moving or close enough to execute
     if speed > constants.stuck_speed_threshold or dist <= constants.task_arrival_distance then
