@@ -37,10 +37,21 @@ If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-
   - `mise run docs -- versions`
 - Search the corpus (supports filters):
   - `mise run docs -- search "<query>" [--version <x.y.z>] [--limit <n>] [--stage runtime,prototype,auxiliary] [--kind <kinds>] [--name <names>] [--member <members>]`
+- Search/versions as JSON (for scripts/tools):
+  - `mise run docs -- versions --json`
+  - `mise run docs -- search "<query>" --json`
 - Get a specific chunk by exact chunk id:
   - `mise run docs -- get "<chunkId>" [--version <x.y.z>]`
-- Open a markdown page by `relPath`:
+- Open content by chunk id, `relPath`, or `symbols.json` key:
+  - `mise run docs -- open "<chunkId>" [--version <x.y.z>]`
   - `mise run docs -- open "<relPath>" [--version <x.y.z>]`
+  - `mise run docs -- open "runtime:method:LuaSurface.set_tiles" [--version <x.y.z>]`
+- If your query/path starts with `--`, use end-of-flags:
+  - `mise run docs -- search -- "--weird"`
+
+Notes:
+
+- Non-JSON output prints `Using version: ...` to stderr; use `--json` if you need deterministic stdout.
 
 ## Formatting (StyLua)
 
