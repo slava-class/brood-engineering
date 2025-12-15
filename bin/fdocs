@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FACTORIO_LLM_DOCS_ROOT="${FACTORIO_LLM_DOCS_ROOT:-$HOME/workspace/factorio-llm-docs}"
+
+if [[ ! -d "$FACTORIO_LLM_DOCS_ROOT" ]]; then
+  echo "factorio-llm-docs repo not found: $FACTORIO_LLM_DOCS_ROOT" >&2
+  echo "Set FACTORIO_LLM_DOCS_ROOT to your checkout path." >&2
+  exit 1
+fi
+
+exec mise -C "$FACTORIO_LLM_DOCS_ROOT" run docs -- "$@"
+

@@ -20,3 +20,8 @@ run = "stylua control.lua data.lua settings.lua scripts tests"
 
 [tasks.fmt-lua-check]
 run = "stylua --check control.lua data.lua settings.lua scripts tests"
+
+[tasks.docs]
+# Wrapper around the local factorio-llm-docs corpus (search/get/open).
+# Configure the checkout path via FACTORIO_LLM_DOCS_ROOT if needed.
+run = "bash bin/fdocs"

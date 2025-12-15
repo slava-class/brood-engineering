@@ -24,10 +24,23 @@ macOS note:
 
 - `factorio-test-data-dir/config.ini` must use `read-data=__PATH__executable__/../data` for app bundles. Keep that line if you recreate the data dir.
 
-## Local Factorio API Docs
+## Factorio Docs (Use Liberally)
 
-- The full Factorio Lua API docs are vendored under `factorio-api-docs/` for offline reference.
-- Entry points: `factorio-api-docs/index-runtime.html` (runtime) and `factorio-api-docs/index-prototype.html` (prototypes).
+Use the `mise run docs` command liberally during development (and while writing tests) to quickly find the exact API symbol/behavior you need, with stable IDs and paths.
+
+It wraps the local `factorio-llm-docs` corpus (search/get/open) and defaults to a checkout at `~/workspace/factorio-llm-docs`.
+If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-llm-docs`.
+
+### Usage
+
+- List available Factorio versions:
+  - `mise run docs -- versions`
+- Search the corpus (supports filters):
+  - `mise run docs -- search "<query>" [--version <x.y.z>] [--limit <n>] [--stage runtime,prototype,auxiliary] [--kind <kinds>] [--name <names>] [--member <members>]`
+- Get a specific chunk by exact chunk id:
+  - `mise run docs -- get "<chunkId>" [--version <x.y.z>]`
+- Open a markdown page by `relPath`:
+  - `mise run docs -- open "<relPath>" [--version <x.y.z>]`
 
 ## Formatting (StyLua)
 
