@@ -37,6 +37,10 @@ If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-
   - `mise run docs -- versions`
 - Search the corpus (supports filters):
   - `mise run docs -- search "<query>" [--version <x.y.z>] [--limit <n>] [--stage runtime,prototype,auxiliary] [--kind <kinds>] [--name <names>] [--member <members>]`
+- Open the top search hit directly:
+  - `mise run docs -- search "<query>" --open`
+- Print only chunk ids (one per line):
+  - `mise run docs -- search "<query>" --print-ids`
 - Search/versions as JSON (for scripts/tools):
   - `mise run docs -- versions --json`
   - `mise run docs -- search "<query>" --json`
@@ -51,7 +55,7 @@ If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-
 
 Notes:
 
-- Non-JSON output prints `Using version: ...` to stderr; use `--json` if you need deterministic stdout.
+- Non-JSON output prints `Using version: ...` to stderr; use `--quiet` to suppress it, or `--json` for machine-readable output.
 
 ## Formatting (StyLua)
 
