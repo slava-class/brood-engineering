@@ -108,6 +108,6 @@ Setup:
 Notes:
 
 - The CLI creates an isolated data dir at `./factorio-test-data-dir` by default.
-- Only `brood-engineering` and `factorio-test` are enabled unless you pass `--mods ...`.
+- Only `brood-engineering` and `factorio-test` are enabled unless you pass `--mods ...` (we enable `elevated-rails` + `quality` + `space-age` by default in `package.json` / `.mise.toml` so many shared blueprints import).
 - Extra args after `--` are forwarded to Factorio (e.g., `--disable-audio --graphics-quality low`).
 - On macOS app bundles, FactorioTest CLI may generate an incorrect `read-data` path. If you see “There is no package core…”, edit `factorio-test-data-dir/config.ini` to use `read-data=__PATH__executable__/../data` (or an absolute path to `factorio.app/Contents/data`). The CLI will keep that line on subsequent runs.

@@ -50,6 +50,56 @@ EOF
   exit 0
 fi
 
+python3 - <<'PY' <<<"${bp}" || true
+import sys, base64, zlib, json
+
+bp = sys.stdin.read().strip()
+if not bp:
+    raise SystemExit(0)
+if not bp.startswith("0"):
+    print(f"Captured string does not look like a Factorio export (missing leading '0'); len={len(bp)}", file=sys.stderr)
+    raise SystemExit(0)
+
+try:
+    raw = base64.b64decode(bp[1:])
+    payload = zlib.decompress(raw)
+    obj = json.loads(payload)
+except Exception as e:
+    print(f"Captured export decode failed: {e}", file=sys.stderr)
+    raise SystemExit(0)
+
+def decode_version(v):
+    if not isinstance(v, int):
+        return None
+    major = (v >> 48) & 0xFFFF
+    minor = (v >> 32) & 0xFFFF
+    patch = (v >> 16) & 0xFFFF
+    dev = v & 0xFFFF
+    return major, minor, patch, dev
+
+kind = next((k for k in ("blueprint", "blueprint_book", "deconstruction_planner", "upgrade_planner") if k in obj), None)
+if not kind:
+    print(f"Captured export type: unknown (top-level keys: {list(obj.keys())})", file=sys.stderr)
+    raise SystemExit(0)
+
+root = obj.get(kind, {}) if isinstance(obj, dict) else {}
+label = root.get("label")
+version = root.get("version")
+decoded = decode_version(version)
+version_str = f"{decoded[0]}.{decoded[1]}.{decoded[2]}.{decoded[3]}" if decoded else str(version)
+
+extra = ""
+if kind == "blueprint_book":
+    extra = f" blueprints={len(root.get('blueprints') or [])}"
+elif kind == "blueprint":
+    extra = f" entities={len(root.get('entities') or [])} tiles={len(root.get('tiles') or [])}"
+
+print(
+    f"Captured export type={kind} label={label!r} version={version_str} ({version}){extra}",
+    file=sys.stderr,
+)
+PY
+
 cat >"${out}" <<EOF
 -- Auto-generated fixture.
 -- Do not edit by hand; re-run \`bin/capture-blueprint-fixture.sh "<name>"\`.
@@ -64,18 +114,18 @@ if [ ! -f "${manifest}" ]; then
 -- Add new fixtures with:
 --   bin/capture-blueprint-fixture.sh "<name>"
 --
--- Each entry is a module path that returns a blueprint export string.
+-- Each entry loads a blueprint export string at module parse time.
 return {
-    { name = "clipboard", module = "tests/fixtures/blueprints/clipboard" },
+    { name = "clipboard", data = require("tests/fixtures/blueprints/clipboard") },
 }
 EOF
 fi
 
 module="tests/fixtures/blueprints/${safe_name}"
-if ! grep -Fq "module = \"${module}\"" "${manifest}" 2>/dev/null; then
+if ! grep -Fq "require(\"${module}\")" "${manifest}" 2>/dev/null; then
   tmp="$(mktemp)"
   lua_name="$(printf "%s" "${name}" | sed -E 's/\\/\\\\/g; s/"/\\"/g')"
-  awk -v entry="    { name = \"${lua_name}\", module = \"${module}\" }," '
+  awk -v entry="    { name = \"${lua_name}\", data = require(\"${module}\") }," '
     BEGIN { added = 0 }
     {
       # POSIX awk does not support \s; use a character class for whitespace.

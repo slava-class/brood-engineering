@@ -5,7 +5,7 @@
     "factorio-test-cli": "^2.0.0"
   },
   "scripts": {
-    "test:factorio": "factorio-test run .",
-    "test": "factorio-test run ."
+    "test:factorio": "factorio-test run . --mods elevated-rails quality space-age",
+    "test": "factorio-test run . --mods elevated-rails quality space-age"
   }
 }

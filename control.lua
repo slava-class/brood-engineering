@@ -915,6 +915,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         "tests/idle_recall_test",
         "tests/entity_deconstruct_test",
         "tests/blueprint_scenario_test",
+        "tests/blueprint_cycle_test",
         "tests/tile_deconstruct_test",
         "tests/build_entity_large_test",
         "tests/module_insert_test",
