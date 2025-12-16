@@ -163,4 +163,104 @@ describe("entity deconstruction", function()
         assert.is_true(inventory.get_item_count({ name = "transport-belt", quality = "normal" }) >= 1)
         assert.is_true(inventory.get_item_count({ name = "iron-plate", quality = "normal" }) >= inserted_count)
     end)
+
+    test("collects items from belt transport lines when mining", function()
+        local target_pos = { x = base_pos.x + 24, y = base_pos.y }
+        clear_area(target_pos, 10)
+
+        local belt = track(surface.create_entity({
+            name = "transport-belt",
+            position = target_pos,
+            direction = defines.direction.east,
+            force = force,
+        }))
+        assert.is_true(belt and belt.valid)
+
+        local line = belt.get_transport_line(1)
+        assert.is_true(line and line.valid)
+
+        local function sum_named_counts(obj, wanted_name)
+            if type(obj) ~= "table" then
+                return 0
+            end
+            local total = 0
+            for k, v in pairs(obj) do
+                if type(v) == "number" then
+                    if k == wanted_name then
+                        total = total + v
+                    end
+                elseif type(v) == "table" then
+                    if v.name == wanted_name and type(v.count) == "number" then
+                        total = total + v.count
+                    else
+                        total = total + sum_named_counts(v, wanted_name)
+                    end
+                end
+            end
+            return total
+        end
+
+        local function try_insert_one()
+            local ok, result = pcall(function()
+                return line.insert_at_back("iron-plate")
+            end)
+            if ok and result == true then
+                return true
+            end
+
+            ok, result = pcall(function()
+                return line.insert_at_back({ name = "iron-plate", count = 1, quality = "normal" })
+            end)
+            if ok and result == true then
+                return true
+            end
+
+            ok, result = pcall(function()
+                return line.insert_at_back(1, "iron-plate")
+            end)
+            if ok and result == true then
+                return true
+            end
+
+            ok, result = pcall(function()
+                return line.insert_at_back(1, { name = "iron-plate", count = 1, quality = "normal" })
+            end)
+            if ok and result == true then
+                return true
+            end
+
+            return false
+        end
+
+        local desired_count = 4
+        for _ = 1, desired_count do
+            if not try_insert_one() then
+                break
+            end
+        end
+
+        local contents = line.get_contents()
+        local on_belt = sum_named_counts(contents, "iron-plate")
+        if on_belt < desired_count then
+            surface.spill_item_stack({
+                position = target_pos,
+                stack = { name = "iron-plate", count = desired_count, quality = "normal" },
+                allow_belts = true,
+                max_radius = 0,
+            })
+            contents = line.get_contents()
+            on_belt = sum_named_counts(contents, "iron-plate")
+        end
+
+        assert.is_true(on_belt > 0)
+
+        belt.order_deconstruction(force)
+
+        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        assert.is_true(deconstruct_entity.can_execute(belt, inventory))
+        assert.is_true(deconstruct_entity.execute({}, belt, inventory, anchor_data))
+        assert.is_true(not belt.valid)
+        assert.is_true(inventory.get_item_count({ name = "transport-belt", quality = "normal" }) >= 1)
+        assert.is_true(inventory.get_item_count({ name = "iron-plate", quality = "normal" }) >= on_belt)
+    end)
 end)

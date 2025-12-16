@@ -359,7 +359,12 @@ function behavior.can_execute(entity, inventory)
     if products then
         for _, product in pairs(products) do
             if product.type == "item" then
-                local count = product.amount or product.amount_min or product.amount_max or 1
+                -- Some prototypes use `amount_min = 0` (random drops). `LuaInventory.can_insert` requires `count > 0`.
+                -- Use a conservative "worst-case" count when available.
+                local count = product.amount or product.amount_max or product.amount_min or 1
+                if not count or count < 1 then
+                    count = 1
+                end
                 local stack = { name = product.name, count = count, quality = quality_name }
                 if not inventory.can_insert(stack) then
                     return false
@@ -374,7 +379,11 @@ function behavior.can_execute(entity, inventory)
     if items_to_place and #items_to_place > 0 then
         local it = items_to_place[1]
         if it and it.name then
-            local stack = { name = it.name, count = it.count or 1, quality = quality_name }
+            local count = it.count or 1
+            if not count or count < 1 then
+                count = 1
+            end
+            local stack = { name = it.name, count = count, quality = quality_name }
             return inventory.can_insert(stack)
         end
     end
@@ -421,8 +430,13 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         return pick_up_item_entity(inventory, entity)
     end
 
-    -- Prefer the engine's mining logic.
-    -- Docs: `mise run docs -- open runtime:method:LuaEntity.mine`
+    -- Two explicit mining paths:
+    -- 1) If the anchor is a LuaControl (character/player/vehicle), prefer `LuaControl.mine_entity` for engine-accurate mining.
+    -- 2) Otherwise (e.g., container anchors/tests), deterministically emulate mining by transferring inventories/transport-lines,
+    --    inserting mined products, and destroying the entity.
+    --
+    -- Docs: `mise run docs -- open runtime:method:LuaControl.mine_entity`
+    -- Docs: `mise run docs -- open runtime:attribute:LuaEntityPrototype.items_to_place_this`
     local surface = entity.surface
     local box = entity.bounding_box
     local area
@@ -446,12 +460,19 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
 
     local quality_name = normalize_quality_name(entity.quality)
 
-    -- If the anchor is a LuaControl (player/character), prefer mining via LuaControl.mine_entity.
-    -- This matches the engine's deconstruction logic and handles entity contents properly.
-    -- Docs: `mise run docs -- open runtime:method:LuaControl.mine_entity`
+    local control = nil
     if anchor_data and anchor_data.entity and anchor_data.entity.valid and anchor_data.entity.mine_entity then
+        control = anchor_data.entity
+    elseif anchor_data and anchor_data.player_index then
+        local player = game and game.get_player(anchor_data.player_index)
+        if player and player.valid and player.mine_entity then
+            control = player
+        end
+    end
+
+    if control then
         local ok, mined = pcall(function()
-            return anchor_data.entity.mine_entity(entity, true)
+            return control.mine_entity(entity, true)
         end)
         if ok and mined == true then
             if surface and area then
@@ -461,12 +482,10 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         end
     end
 
-    -- Script mining (`LuaEntity.mine`) is surprisingly inconsistent across entity types and game versions.
-    -- For non-LuaControl anchors (like chests), emulate mining deterministically.
+    -- Deterministic fallback (container/test anchors).
     if surface and area then
         sweep_spills(inventory, surface, area)
     end
-
     insert_transport_line_contents(entity, inventory, spill_surface, spill_position)
     transfer_all_entity_inventories(entity, inventory, spill_surface, spill_position)
     insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)

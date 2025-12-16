@@ -117,4 +117,33 @@ describe("tasks", function()
         assert.is_true(tasks.exist_in_area(surface, area, { force.name, "neutral" }))
         assert.is_false(tasks.exist_executable_in_area(surface, area, { force.name, "neutral" }, inventory))
     end)
+
+    test("does not crash when mine products have 0 minimum", function()
+        local pos = { x = base_pos.x + 45, y = base_pos.y }
+
+        local chest = track(surface.create_entity({
+            name = "wooden-chest",
+            position = { x = pos.x + 3, y = pos.y },
+            force = force,
+        }))
+        local inventory = chest.get_inventory(defines.inventory.chest)
+
+        -- Trees can have random mine products (often `amount_min = 0`).
+        local tree = track(surface.create_entity({
+            name = "tree-01",
+            position = pos,
+            force = "neutral",
+        }))
+        assert.is_true(tree and tree.valid)
+
+        tree.order_deconstruction(force)
+        assert.is_true(tree.to_be_deconstructed())
+
+        local area = { { pos.x - 3, pos.y - 3 }, { pos.x + 3, pos.y + 3 } }
+        local ok, result = pcall(function()
+            return tasks.find_all(surface, area, { force.name, "neutral" }, inventory)
+        end)
+        assert.is_true(ok)
+        assert.is_true(type(result) == "table")
+    end)
 end)

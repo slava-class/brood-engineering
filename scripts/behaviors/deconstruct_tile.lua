@@ -317,18 +317,19 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
     local before_hidden = tile.hidden_tile
 
     -- Tiles must be mined via a `LuaControl` (player or character), not via the spider.
-    -- If we have a player anchor, prefer the player control; otherwise fall back to the
-    -- anchor entity (for tests where we spawn a `character` directly).
+    -- Prefer mining as the anchor entity when possible: in remote controller mode the player's
+    -- LuaControl can behave differently, while the character entity remains physically present.
     -- Docs: `mise run docs -- open runtime:method:LuaControl.mine_tile`
     local anchor_entity = anchor_data and anchor_data.entity or nil
-    local control = nil
-    if anchor_data and anchor_data.player_index then
-        local player = game and game.get_player(anchor_data.player_index)
-        if player and player.valid then
-            control = player
+    local control = anchor_entity
+    if not (control and control.valid and control.mine_tile) then
+        if anchor_data and anchor_data.player_index then
+            local player = game and game.get_player(anchor_data.player_index)
+            if player and player.valid then
+                control = player
+            end
         end
     end
-    control = control or anchor_entity
 
     if not (control and control.valid and control.mine_tile) then
         dlog(
@@ -439,7 +440,7 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
             end
 
             if debug_enabled() then
-                dprint(anchor_data, "tile mined but products spilled; see factorio-current.log ([TileDecon])")
+                dlog("execute: tile mined but products still missing after sweep=" .. serialize(want))
             end
         end
 
