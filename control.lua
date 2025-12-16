@@ -199,9 +199,51 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             return
         end
 
+        -- Execute tasks when we're "close enough", even if the autopilot completion
+        -- event doesn't fire or the destination list isn't cleared.
+        local function is_close_enough()
+            local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
+            if not (target and target.valid) then
+                return false
+            end
+
+            local spider_pos = spider_entity.position
+            local threshold = constants.task_arrival_distance
+            if threshold < 1.0 then
+                threshold = 1.0
+            end
+
+            local dist_to_target = utils.distance(spider_pos, target.position)
+            if dist_to_target < threshold then
+                return true
+            end
+
+            local approach = spider_data.task.approach_position
+            if approach and utils.distance(spider_pos, approach) < threshold then
+                return true
+            end
+
+            local destinations = spider_entity.autopilot_destinations
+            if destinations and #destinations > 0 then
+                local last_dest = destinations[#destinations]
+                local dest_pos = last_dest and (last_dest.position or last_dest) or nil
+                if dest_pos and utils.distance(spider_pos, dest_pos) < threshold then
+                    return true
+                end
+            end
+
+            -- If we're basically touching the target and not moving, treat it as arrived.
+            local speed = spider_entity.speed or 0
+            if speed <= constants.stuck_speed_threshold and dist_to_target < (threshold * 1.5) then
+                return true
+            end
+
+            return false
+        end
+
         -- If we're already close enough, execute even if the autopilot
         -- completion event doesn't fire (e.g., destination already reached).
-        if spider.has_arrived(spider_data) then
+        if is_close_enough() or spider.has_arrived(spider_data) then
             spider.arrive_at_task(spider_id)
             tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
             spider.complete_task(spider_id)
@@ -871,6 +913,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         "tests/spider_test",
         "tests/deploy_recall_test",
         "tests/idle_recall_test",
+        "tests/entity_deconstruct_test",
         "tests/tile_deconstruct_test",
         "tests/build_entity_large_test",
         "tests/module_insert_test",

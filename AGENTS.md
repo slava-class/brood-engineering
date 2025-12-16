@@ -79,6 +79,7 @@ Quick docs lookups:
 
 - `LuaControl.mine_tile` (what actually performs tile mining): `mise run docs -- open runtime:method:LuaControl.mine_tile`
 - `LuaPrototypes.quality` (dictionary keyed by quality name): `mise run docs -- open runtime/classes/LuaPrototypes.md#quality`
+- `LuaEntity.mine` (preferred way to deconstruct entities): `mise run docs -- open runtime:method:LuaEntity.mine`
 
 ## Adding tests
 

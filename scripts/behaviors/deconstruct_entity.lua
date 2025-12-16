@@ -9,6 +9,61 @@ local behavior = {
     priority = constants.priorities.deconstruct_entity,
 }
 
+---@param inventory LuaInventory
+---@param stack LuaItemStack
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function insert_or_spill(inventory, stack, spill_surface, spill_position)
+    if not (inventory and inventory.valid) then
+        return
+    end
+    if not (stack and stack.valid_for_read) then
+        return
+    end
+
+    local inserted = inventory.insert(stack)
+    if inserted and inserted > 0 then
+        stack.count = stack.count - inserted
+    end
+
+    if stack.valid_for_read and spill_surface and spill_position then
+        local safe_stack = { name = stack.name, count = stack.count }
+        if stack.quality and stack.quality ~= "normal" then
+            safe_stack.quality = stack.quality
+        end
+        pcall(function()
+            spill_surface.spill_item_stack({
+                position = spill_position,
+                stack = safe_stack,
+                allow_belts = false,
+                enable_looted = true,
+                max_radius = 0,
+            })
+        end)
+        stack.clear()
+    end
+end
+
+---@param from_inv LuaInventory
+---@param to_inv LuaInventory
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function transfer_inventory(from_inv, to_inv, spill_surface, spill_position)
+    if not (from_inv and from_inv.valid) then
+        return
+    end
+    if not (to_inv and to_inv.valid) then
+        return
+    end
+
+    for i = 1, #from_inv do
+        local stack = from_inv[i]
+        if stack and stack.valid_for_read then
+            insert_or_spill(to_inv, stack, spill_surface, spill_position)
+        end
+    end
+end
+
 --- Find entities marked for deconstruction
 ---@param surface LuaSurface
 ---@param area BoundingBox
@@ -33,39 +88,231 @@ function behavior.find_tasks(surface, area, force)
     return result
 end
 
---- Get items that would be returned when mining an entity
+---@param quality any
+---@return string
+local function normalize_quality_name(quality)
+    if type(quality) == "table" then
+        return quality.name or "normal"
+    end
+    if type(quality) == "string" and quality ~= "" then
+        return quality
+    end
+    return "normal"
+end
+
+---@param inventory LuaInventory
+---@param item_entity LuaEntity
+---@return boolean did_pick_up_any
+local function pick_up_item_entity(inventory, item_entity)
+    if not (inventory and inventory.valid) then
+        return false
+    end
+    if not (item_entity and item_entity.valid and item_entity.type == "item-entity") then
+        return false
+    end
+
+    local stack = item_entity.stack
+    if not (stack and stack.valid_for_read) then
+        return false
+    end
+
+    local inserted = inventory.insert(stack)
+    if not (inserted and inserted > 0) then
+        return false
+    end
+
+    if inserted >= stack.count then
+        item_entity.destroy({ raise_destroyed = true })
+    else
+        stack.count = stack.count - inserted
+    end
+
+    return true
+end
+
+---@param surface LuaSurface
+---@param area BoundingBox
+---@return LuaEntity[]
+local function find_item_entities(surface, area)
+    local ok, entities = pcall(function()
+        return surface.find_entities_filtered({
+            area = area,
+            type = "item-entity",
+        })
+    end)
+    if not ok or not entities then
+        return {}
+    end
+    return entities
+end
+
+---@param inventory LuaInventory
+---@param surface LuaSurface
+---@param area BoundingBox
+local function sweep_spills(inventory, surface, area)
+    if not (inventory and inventory.valid) then
+        return
+    end
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return
+    end
+
+    local drops = find_item_entities(surface, area)
+    for _, drop in ipairs(drops) do
+        pick_up_item_entity(inventory, drop)
+    end
+end
+
+--- Get item products that would be returned when mining an entity
 ---@param entity LuaEntity
----@return ItemStackDefinition?
-local function get_mine_result(entity)
-    -- Handle item-on-ground specially
-    if entity.type == "item-entity" then
-        local stack = entity.stack
-        if stack and stack.valid_for_read then
-            return { name = stack.name, count = stack.count, quality = stack.quality }
-        end
-        return nil
-    end
-
-    -- Regular entity
+---@return Prototype.mineable_properties.products?
+local function get_mine_products(entity)
     local prototype = entity.prototype
-    local mineable = prototype.mineable_properties
+    local mineable = prototype and prototype.mineable_properties
+    return mineable and mineable.products or nil
+end
 
-    if not mineable or not mineable.products then
-        return nil
+---@param inventory LuaInventory
+---@param name string
+---@param count number
+---@param quality_name string
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function insert_name_count(inventory, name, count, quality_name, spill_surface, spill_position)
+    if not (inventory and inventory.valid) then
+        return
+    end
+    if not (name and name ~= "" and count and count > 0) then
+        return
     end
 
-    for _, product in pairs(mineable.products) do
-        if product.type == "item" then
-            local amount = product.amount or product.amount_max or 1
-            return {
-                name = product.name,
-                count = amount,
-                quality = entity.quality and entity.quality.name or "normal",
-            }
+    local stack = { name = name, count = count }
+    if quality_name and quality_name ~= "normal" then
+        stack.quality = quality_name
+    end
+
+    local inserted = inventory.insert(stack)
+    local remaining = count - (inserted or 0)
+    if remaining <= 0 then
+        return
+    end
+
+    if spill_surface and spill_position then
+        local spilled = { name = name, count = remaining }
+        if quality_name and quality_name ~= "normal" then
+            spilled.quality = quality_name
+        end
+        pcall(function()
+            spill_surface.spill_item_stack({
+                position = spill_position,
+                stack = spilled,
+                allow_belts = false,
+                enable_looted = true,
+                max_radius = 0,
+            })
+        end)
+    end
+end
+
+---@param entity LuaEntity
+---@param inventory LuaInventory
+---@param quality_name string
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)
+    local products = get_mine_products(entity)
+    if products then
+        for _, product in pairs(products) do
+            if product.type == "item" then
+                local count = product.amount or product.amount_min or product.amount_max or 1
+                insert_name_count(inventory, product.name, count, quality_name, spill_surface, spill_position)
+            end
+        end
+        return
+    end
+
+    local prototype = entity.prototype
+    local items_to_place = prototype and prototype.items_to_place_this or nil
+    if items_to_place and #items_to_place > 0 then
+        local it = items_to_place[1]
+        if it and it.name then
+            insert_name_count(inventory, it.name, it.count or 1, quality_name, spill_surface, spill_position)
+        end
+        return
+    end
+
+    -- Last resort: many entities have an item with the same name.
+    insert_name_count(inventory, entity.name, 1, quality_name, spill_surface, spill_position)
+end
+
+---@param entity LuaEntity
+---@param inventory LuaInventory
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function insert_transport_line_contents(entity, inventory, spill_surface, spill_position)
+    if not (entity and entity.valid) then
+        return
+    end
+    if not (inventory and inventory.valid) then
+        return
+    end
+    if not entity.get_transport_line then
+        return
+    end
+
+    for line_index = 1, 4 do
+        local ok_line, line = pcall(function()
+            return entity.get_transport_line(line_index)
+        end)
+        if ok_line and line and line.valid and line.get_contents then
+            local ok_contents, contents = pcall(function()
+                return line.get_contents()
+            end)
+            if ok_contents and contents then
+                for _, entry in ipairs(contents) do
+                    if entry and entry.name and entry.count and entry.count > 0 then
+                        insert_name_count(
+                            inventory,
+                            entry.name,
+                            entry.count,
+                            entry.quality or "normal",
+                            spill_surface,
+                            spill_position
+                        )
+                    end
+                end
+            end
+            pcall(function()
+                if line.clear then
+                    line.clear()
+                end
+            end)
         end
     end
+end
 
-    return nil
+---@param entity LuaEntity
+---@param to_inv LuaInventory
+---@param spill_surface LuaSurface?
+---@param spill_position MapPosition?
+local function transfer_all_entity_inventories(entity, to_inv, spill_surface, spill_position)
+    if not (entity and entity.valid) then
+        return
+    end
+    if not (to_inv and to_inv.valid) then
+        return
+    end
+
+    for _, inv_id in pairs(defines.inventory) do
+        if type(inv_id) == "number" then
+            local ok, inv = pcall(function()
+                return entity.get_inventory(inv_id)
+            end)
+            if ok and inv and inv.valid then
+                transfer_inventory(inv, to_inv, spill_surface, spill_position)
+            end
+        end
+    end
 end
 
 --- Check if we can deconstruct this entity (have space for results)
@@ -100,13 +347,38 @@ function behavior.can_execute(entity, inventory)
         return false
     end
 
-    -- Check if we have space for the result
-    local result = get_mine_result(entity)
-    if result then
-        return utils.inventory_has_space(inventory, result)
+    -- Item-on-ground: make sure we can at least insert one item.
+    if entity.type == "item-entity" then
+        local stack = entity.stack
+        return stack and stack.valid_for_read and inventory.can_insert(stack) or false
     end
 
-    -- No result, can always deconstruct
+    -- Check space for mined products (best-effort; mining may still spill extras).
+    local quality_name = normalize_quality_name(entity.quality)
+    local products = get_mine_products(entity)
+    if products then
+        for _, product in pairs(products) do
+            if product.type == "item" then
+                local count = product.amount or product.amount_min or product.amount_max or 1
+                local stack = { name = product.name, count = count, quality = quality_name }
+                if not inventory.can_insert(stack) then
+                    return false
+                end
+            end
+        end
+        return true
+    end
+
+    local prototype = entity.prototype
+    local items_to_place = prototype and prototype.items_to_place_this or nil
+    if items_to_place and #items_to_place > 0 then
+        local it = items_to_place[1]
+        if it and it.name then
+            local stack = { name = it.name, count = it.count or 1, quality = quality_name }
+            return inventory.can_insert(stack)
+        end
+    end
+
     return true
 end
 
@@ -137,7 +409,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
                 inventory.remove({ name = "cliff-explosives", count = 1, quality = quality_name })
-                entity.destroy({ raise_destroy = true })
+                entity.destroy({ raise_destroyed = true })
                 return true
             end
         end
@@ -146,71 +418,61 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
 
     -- Handle item-on-ground (picking up items)
     if entity.type == "item-entity" then
-        local stack = entity.stack
-        if stack and stack.valid_for_read then
-            local inserted = inventory.insert(stack)
-            if inserted > 0 then
-                if inserted >= stack.count then
-                    entity.destroy({ raise_destroy = true })
-                else
-                    stack.count = stack.count - inserted
-                end
-                return true
-            end
-        end
-        return false
+        return pick_up_item_entity(inventory, entity)
     end
 
-    -- Regular entity - get contents first
-    local entity_contents = {}
-    for i = 1, 11 do
-        local inv = entity.get_inventory(i)
-        if inv and inv.valid then
-            for _, item in pairs(inv.get_contents()) do
-                entity_contents[#entity_contents + 1] = item
-            end
-        end
+    -- Prefer the engine's mining logic.
+    -- Docs: `mise run docs -- open runtime:method:LuaEntity.mine`
+    local surface = entity.surface
+    local box = entity.bounding_box
+    local area
+    if box and box.left_top and box.right_bottom then
+        area = {
+            { box.left_top.x - 1.5, box.left_top.y - 1.5 },
+            { box.right_bottom.x + 1.5, box.right_bottom.y + 1.5 },
+        }
+    else
+        local pos = entity.position
+        area = { { pos.x - 2, pos.y - 2 }, { pos.x + 2, pos.y + 2 } }
     end
 
-    -- Handle belts
-    local belt_types = {
-        ["transport-belt"] = true,
-        ["underground-belt"] = true,
-        ["splitter"] = true,
-        ["loader"] = true,
-        ["loader-1x1"] = true,
-        ["linked-belt"] = true,
-        ["lane-splitter"] = true,
-    }
+    local spill_surface = surface
+    local spill_position = nil
+    if anchor_data and anchor_data.entity and anchor_data.entity.valid then
+        spill_position = anchor_data.entity.position
+    elseif entity and entity.valid then
+        spill_position = entity.position
+    end
 
-    if belt_types[entity.type] then
-        for i = 1, entity.get_max_transport_line_index() do
-            local line = entity.get_transport_line(i)
-            if line and line.valid then
-                for _, item in pairs(line.get_contents()) do
-                    entity_contents[#entity_contents + 1] = item
-                end
+    local quality_name = normalize_quality_name(entity.quality)
+
+    -- If the anchor is a LuaControl (player/character), prefer mining via LuaControl.mine_entity.
+    -- This matches the engine's deconstruction logic and handles entity contents properly.
+    -- Docs: `mise run docs -- open runtime:method:LuaControl.mine_entity`
+    if anchor_data and anchor_data.entity and anchor_data.entity.valid and anchor_data.entity.mine_entity then
+        local ok, mined = pcall(function()
+            return anchor_data.entity.mine_entity(entity, true)
+        end)
+        if ok and mined == true then
+            if surface and area then
+                sweep_spills(inventory, surface, area)
             end
+            return not (entity and entity.valid)
         end
     end
 
-    -- Mine the entity
-    local result = get_mine_result(entity)
-
-    -- Destroy the entity
-    entity.destroy({ raise_destroy = true })
-
-    -- Insert mined item
-    if result then
-        inventory.insert(result)
+    -- Script mining (`LuaEntity.mine`) is surprisingly inconsistent across entity types and game versions.
+    -- For non-LuaControl anchors (like chests), emulate mining deterministically.
+    if surface and area then
+        sweep_spills(inventory, surface, area)
     end
 
-    -- Insert contents
-    for _, item in pairs(entity_contents) do
-        inventory.insert(item)
-    end
+    insert_transport_line_contents(entity, inventory, spill_surface, spill_position)
+    transfer_all_entity_inventories(entity, inventory, spill_surface, spill_position)
+    insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)
+    entity.destroy({ raise_destroyed = true })
 
-    return true
+    return not (entity and entity.valid)
 end
 
 --- Get unique ID for an entity

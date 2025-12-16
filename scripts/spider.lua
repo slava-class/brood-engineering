@@ -705,9 +705,29 @@ function spider.has_arrived(spider_data)
         return false
     end
 
-    local arrive_pos = spider_data.task.approach_position or target.position
-    local dist = utils.distance(spider_entity.position, arrive_pos)
-    return dist < constants.task_arrival_distance
+    -- Prefer the planned approach position, but also accept proximity to the task target.
+    -- In practice spiders can end up close to the target even if the autopilot destination
+    -- isn't cleared (or was adjusted by pathing/collisions).
+    local threshold = constants.task_arrival_distance
+    if threshold < 1.0 then
+        threshold = 1.0
+    end
+
+    local arrive_pos = spider_data.task.approach_position
+    local dist_to_approach = arrive_pos and utils.distance(spider_entity.position, arrive_pos) or math.huge
+    local dist_to_target = utils.distance(spider_entity.position, target.position)
+
+    local dist_to_dest = math.huge
+    local destinations = spider_entity.autopilot_destinations
+    if destinations and #destinations > 0 then
+        local last_dest = destinations[#destinations]
+        local dest_pos = last_dest and (last_dest.position or last_dest) or nil
+        if dest_pos then
+            dist_to_dest = utils.distance(spider_entity.position, dest_pos)
+        end
+    end
+
+    return math.min(dist_to_approach, dist_to_target, dist_to_dest) < threshold
 end
 
 --- Check if spider is stuck (no speed)

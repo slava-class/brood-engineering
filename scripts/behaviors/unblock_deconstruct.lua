@@ -71,74 +71,12 @@ function behavior.find_tasks(surface, area, force)
     return blocking
 end
 
---- Get items that would be returned when mining an entity
----@param entity LuaEntity
----@return ItemStackDefinition?
-local function get_mine_result(entity)
-    if entity.type == "item-entity" then
-        local stack = entity.stack
-        if stack and stack.valid_for_read then
-            return { name = stack.name, count = stack.count, quality = stack.quality }
-        end
-        return nil
-    end
-
-    local prototype = entity.prototype
-    local mineable = prototype.mineable_properties
-
-    if not mineable or not mineable.products then
-        return nil
-    end
-
-    for _, product in pairs(mineable.products) do
-        if product.type == "item" then
-            local amount = product.amount or product.amount_max or 1
-            return {
-                name = product.name,
-                count = amount,
-                quality = entity.quality and entity.quality.name or "normal",
-            }
-        end
-    end
-
-    return nil
-end
-
 --- Check if we can deconstruct this entity
 ---@param entity LuaEntity
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(entity, inventory)
-    if not entity or not entity.valid then
-        return false
-    end
-    if not entity.to_be_deconstructed() then
-        return false
-    end
-    if not inventory or not inventory.valid then
-        return false
-    end
-
-    -- Cliffs need explosives
-    if entity.type == "cliff" then
-        -- `prototypes.quality` is keyed by quality name; pass the key (QualityID), not the prototype table.
-        -- Docs: `mise run docs -- open runtime/classes/LuaPrototypes.md#quality`
-        for quality_name, _ in pairs(prototypes.quality) do
-            local item = { name = "cliff-explosives", quality = quality_name }
-            if utils.inventory_has_item(inventory, item) then
-                return true
-            end
-        end
-        return false
-    end
-
-    -- Check space for result
-    local result = get_mine_result(entity)
-    if result then
-        return utils.inventory_has_space(inventory, result)
-    end
-
-    return true
+    return deconstruct.can_execute(entity, inventory)
 end
 
 --- Deconstruct the entity

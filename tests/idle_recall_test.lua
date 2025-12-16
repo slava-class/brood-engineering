@@ -19,11 +19,33 @@ describe("idle recall after finishing work", function()
         return entity
     end
 
+    local function flatten_area(position, radius)
+        local tiles = {}
+        for y = position.y - radius, position.y + radius do
+            for x = position.x - radius, position.x + radius do
+                tiles[#tiles + 1] = { name = "grass-1", position = { x = x, y = y } }
+            end
+        end
+        surface.set_tiles(tiles, true)
+
+        local area = { { position.x - radius, position.y - radius }, { position.x + radius, position.y + radius } }
+        for _, e in ipairs(surface.find_entities_filtered({ area = area })) do
+            if e and e.valid and e.type ~= "character" then
+                pcall(function()
+                    e.destroy({ raise_destroyed = false })
+                end)
+            end
+        end
+    end
+
     before_each(function()
         surface = game.surfaces[1]
         force = game.forces.player
         base_pos = { x = 4000 + math.random(0, 50), y = math.random(-20, 20) }
         created = {}
+
+        surface.request_to_generate_chunks(base_pos, 2)
+        surface.force_generate_chunk_requests()
 
         original_global_enabled = storage.global_enabled
         -- Keep the main loop disabled during setup to avoid races with task creation.
@@ -87,6 +109,13 @@ describe("idle recall after finishing work", function()
             end
         end
 
+        -- Ensure the immediate area around the anchor/task is clear and traversable
+        -- so spider movement doesn't depend on map generation randomness.
+        flatten_area(base_pos, 25)
+
+        local task_pos = { x = base_pos.x + 2, y = base_pos.y }
+        flatten_area(task_pos, 15)
+
         anchor_entity = track(surface.create_entity({
             name = "wooden-chest",
             position = base_pos,
@@ -108,7 +137,6 @@ describe("idle recall after finishing work", function()
         storage.anchors[anchor_id] = anchor_data
 
         -- A single nearby deconstruction task to trigger deploy + full task execution.
-        local task_pos = { x = base_pos.x + 2, y = base_pos.y }
         task_entity = track(surface.create_entity({
             name = "stone-furnace",
             position = task_pos,
@@ -195,7 +223,9 @@ describe("idle recall after finishing work", function()
                     anchor_entity.teleport({ x = base_pos.x + 1, y = base_pos.y })
                     set_phase("waiting_recall")
                 end
-                if phase_age() > 60 * 12 then
+                -- Allow an extra main-loop window so we don't fail if the spider becomes "close enough"
+                -- just after the last scheduled `run_main_loop` tick.
+                if phase_age() > (60 * 12 + constants.main_loop_interval * 2) then
                     local status = spider_data and spider_data.status or "nil"
                     local task_id = spider_data and spider_data.task and spider_data.task.id or "nil"
                     local spider_entity = spider_data and spider_data.entity
