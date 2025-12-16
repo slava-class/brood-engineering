@@ -38,16 +38,16 @@ function behavior.find_tasks(surface, area, force)
         force = force,
         type = "tile-ghost",
     })
-    
+
     local foundations = get_foundation_tiles()
     local result = {}
-    
+
     for _, ghost in pairs(tile_ghosts) do
         if ghost.valid and foundations[ghost.ghost_name] then
             result[#result + 1] = ghost
         end
     end
-    
+
     return result
 end
 
@@ -56,16 +56,24 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(ghost, inventory)
-    if not ghost or not ghost.valid then return false end
-    if not inventory or not inventory.valid then return false end
-    
+    if not ghost or not ghost.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+
     -- Get item needed
     local tile_proto = prototypes.tile[ghost.ghost_name]
-    if not tile_proto then return false end
-    
+    if not tile_proto then
+        return false
+    end
+
     local items = tile_proto.items_to_place_this
-    if not items or not items[1] then return false end
-    
+    if not items or not items[1] then
+        return false
+    end
+
     local item_name = items[1].name
     return utils.inventory_has_item(inventory, item_name)
 end
@@ -77,37 +85,45 @@ end
 ---@param anchor_data table
 ---@return boolean
 function behavior.execute(spider_data, ghost, inventory, anchor_data)
-    if not ghost or not ghost.valid then return false end
-    if not inventory or not inventory.valid then return false end
-    
+    if not ghost or not ghost.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+
     local tile_name = ghost.ghost_name
     local tile_proto = prototypes.tile[tile_name]
-    if not tile_proto then return false end
-    
+    if not tile_proto then
+        return false
+    end
+
     local items = tile_proto.items_to_place_this
-    if not items or not items[1] then return false end
-    
+    if not items or not items[1] then
+        return false
+    end
+
     local item_name = items[1].name
     local item_count = items[1].count or 1
-    
+
     if not utils.inventory_has_item(inventory, item_name) then
         return false
     end
-    
+
     local position = ghost.position
     local surface = ghost.surface
-    
+
     -- Revive the tile ghost
     local collisions, tile, proxy = ghost.revive({
         raise_revive = true,
     })
-    
+
     if tile or not ghost.valid then
         -- Remove item from inventory
         inventory.remove({ name = item_name, count = item_count })
         return true
     end
-    
+
     return false
 end
 

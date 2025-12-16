@@ -38,7 +38,7 @@ end
 ---@return MapPosition
 function utils.random_position_in_radius(center, radius)
     local angle = math.random() * 2 * math.pi
-    local dist = radius * math.sqrt(math.random())  -- sqrt for uniform distribution
+    local dist = radius * math.sqrt(math.random()) -- sqrt for uniform distribution
     return {
         x = center.x + dist * math.cos(angle),
         y = center.y + dist * math.sin(angle),
@@ -77,13 +77,13 @@ function utils.random_pairs(tbl)
     for k in pairs(tbl) do
         keys[#keys + 1] = k
     end
-    
+
     -- Fisher-Yates shuffle
     for i = #keys, 2, -1 do
         local j = math.random(i)
         keys[i], keys[j] = keys[j], keys[i]
     end
-    
+
     -- Iterator
     local i = 0
     return function()
@@ -99,7 +99,9 @@ end
 ---@param entity LuaEntity
 ---@return uint64
 function utils.get_entity_id(entity)
-    if not entity or not entity.valid then return 0 end
+    if not entity or not entity.valid then
+        return 0
+    end
     local reg_number = script.register_on_object_destroyed(entity)
     return reg_number
 end
@@ -135,7 +137,9 @@ end
 ---@param player LuaPlayer
 ---@return LuaEntity?
 function utils.get_player_entity(player)
-    if not player or not player.valid then return nil end
+    if not player or not player.valid then
+        return nil
+    end
     return player.physical_vehicle or player.character or nil
 end
 
@@ -143,10 +147,12 @@ end
 ---@param entity LuaEntity
 ---@return LuaInventory?
 function utils.get_entity_inventory(entity)
-    if not entity or not entity.valid then return nil end
-    
+    if not entity or not entity.valid then
+        return nil
+    end
+
     local entity_type = entity.type
-    
+
     if entity_type == "character" then
         return entity.get_inventory(defines.inventory.character_main)
     elseif entity_type == "car" then
@@ -158,7 +164,7 @@ function utils.get_entity_inventory(entity)
     elseif entity_type == "container" or entity_type == "logistic-container" then
         return entity.get_inventory(defines.inventory.chest)
     end
-    
+
     return nil
 end
 
@@ -167,7 +173,9 @@ end
 ---@param item ItemIDAndQualityIDPair|string
 ---@return boolean
 function utils.inventory_has_item(inventory, item)
-    if not inventory or not inventory.valid then return false end
+    if not inventory or not inventory.valid then
+        return false
+    end
     return inventory.get_item_count(item) >= 1
 end
 
@@ -176,7 +184,9 @@ end
 ---@param item ItemStackDefinition|string
 ---@return boolean
 function utils.inventory_has_space(inventory, item)
-    if not inventory or not inventory.valid then return false end
+    if not inventory or not inventory.valid then
+        return false
+    end
     return inventory.can_insert(item)
 end
 
@@ -200,18 +210,24 @@ function utils.get_entity_size(entity)
     local w = math.abs(box.right_bottom.x - box.left_top.x)
     local h = math.abs(box.right_bottom.y - box.left_top.y)
     local area = w * h
-    
-    if area <= 1 then return "small"
-    elseif area <= 4 then return "medium"
-    elseif area <= 9 then return "large"
-    else return "huge"
+
+    if area <= 1 then
+        return "small"
+    elseif area <= 4 then
+        return "medium"
+    elseif area <= 9 then
+        return "large"
+    else
+        return "huge"
     end
 end
 
 --- Log a message (debug helper)
 ---@param msg string
 function utils.log(msg)
-    if not debug_logging_enabled() then return end
+    if not debug_logging_enabled() then
+        return
+    end
     log("[Brood] " .. msg)
 end
 

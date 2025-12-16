@@ -30,21 +30,21 @@ end
 ---@return table? task { id, entity/tile, behavior_name }
 function tasks.find_best(surface, area, force, inventory)
     local behaviors = get_behaviors()
-    
+
     -- Try each behavior in priority order
     for _, behavior in ipairs(behaviors) do
         local targets = behavior.find_tasks(surface, area, force)
-        
+
         if targets and #targets > 0 then
             -- Shuffle targets for fairness
             for i = #targets, 2, -1 do
                 local j = math.random(i)
                 targets[i], targets[j] = targets[j], targets[i]
             end
-            
+
             for _, target in ipairs(targets) do
                 local task_id = behavior.get_task_id(target)
-                
+
                 -- Skip if already assigned
                 if not tasks.is_assigned(task_id) then
                     -- Check if we can execute
@@ -61,7 +61,7 @@ function tasks.find_best(surface, area, force, inventory)
             end
         end
     end
-    
+
     return nil
 end
 
@@ -74,14 +74,14 @@ end
 function tasks.find_all(surface, area, force, inventory)
     local behaviors = get_behaviors()
     local result = {}
-    
+
     for _, behavior in ipairs(behaviors) do
         local targets = behavior.find_tasks(surface, area, force)
-        
+
         if targets then
             for _, target in ipairs(targets) do
                 local task_id = behavior.get_task_id(target)
-                
+
                 if not tasks.is_assigned(task_id) then
                     if behavior.can_execute(target, inventory) then
                         result[#result + 1] = {
@@ -97,10 +97,12 @@ function tasks.find_all(surface, area, force, inventory)
             end
         end
     end
-    
+
     -- Sort by priority
-    table.sort(result, function(a, b) return a.priority < b.priority end)
-    
+    table.sort(result, function(a, b)
+        return a.priority < b.priority
+    end)
+
     return result
 end
 
@@ -111,14 +113,14 @@ end
 ---@return boolean
 function tasks.exist_in_area(surface, area, force)
     local behaviors = get_behaviors()
-    
+
     for _, behavior in ipairs(behaviors) do
         local targets = behavior.find_tasks(surface, area, force)
         if targets and #targets > 0 then
             return true
         end
     end
-    
+
     return false
 end
 

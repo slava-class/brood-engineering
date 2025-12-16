@@ -10,15 +10,14 @@ local behavior = {
 }
 
 local function debug_enabled()
-    return settings
-        and settings.global
-        and settings.global["brood-debug-logging"]
-        and settings.global["brood-debug-logging"].value
+    return utils.debug_enabled()
 end
 
 ---@param msg string
 local function dlog(msg)
-    if not debug_enabled() then return end
+    if not debug_enabled() then
+        return
+    end
     local tick = (game and game.tick) or -1
     utils.log(string.format("[TileDecon][t=%d] %s", tick, msg))
 end
@@ -26,9 +25,13 @@ end
 ---@param anchor_data table?
 ---@param msg string
 local function dprint(anchor_data, msg)
-    if not debug_enabled() then return end
+    if not debug_enabled() then
+        return
+    end
     local player_index = anchor_data and anchor_data.player_index
-    if not player_index then return end
+    if not player_index then
+        return
+    end
     local player = game and game.get_player(player_index)
     if player and player.valid then
         player.print("[Brood][TileDecon] " .. msg)
@@ -40,20 +43,26 @@ end
 local function serialize(value)
     if serpent and serpent.line then
         local ok, out = pcall(serpent.line, value, { comment = false, nocode = true })
-        if ok and out then return out end
+        if ok and out then
+            return out
+        end
     end
     return tostring(value)
 end
 
 local function is_marked(tile)
-    if not tile or not tile.valid then return false end
-    if not tile.to_be_deconstructed then return false end
-    -- Factorio binds LuaObject methods, so the common call form is `tile.to_be_deconstructed()`.
-    -- Some environments may still require passing `tile` as the first arg; support both.
-    local ok, marked = pcall(tile.to_be_deconstructed)
-    if not ok then
-        ok, marked = pcall(tile.to_be_deconstructed, tile)
+    if not tile or not tile.valid then
+        return false
     end
+    if not tile.to_be_deconstructed then
+        return false
+    end
+    -- `LuaTile.to_be_deconstructed()` is a LuaObject method; wrap it in `pcall` to
+    -- protect the main loop from odd invalidation edge cases.
+    -- Docs: `mise run docs -- open runtime/classes/LuaTile.md`
+    local ok, marked = pcall(function()
+        return tile.to_be_deconstructed()
+    end)
     if not ok then
         dlog("is_marked pcall failed: " .. tostring(marked))
         return false
@@ -115,19 +124,10 @@ function behavior.find_tasks(surface, area, force)
             local sample_limit = math.min(#result, 12)
             for i = 1, sample_limit do
                 local t = result[i]
-                sample[#sample + 1] = string.format(
-                    "%s(%s@%.0f,%.0f)",
-                    utils.get_tile_key(t),
-                    t.name,
-                    t.position.x,
-                    t.position.y
-                )
+                sample[#sample + 1] =
+                    string.format("%s(%s@%.0f,%.0f)", utils.get_tile_key(t), t.name, t.position.x, t.position.y)
             end
-            dlog(string.format(
-                "find_tasks found %d deconstruct-marked tiles: %s",
-                #result,
-                table.concat(sample, ", ")
-            ))
+            dlog(string.format("find_tasks found %d deconstruct-marked tiles: %s", #result, table.concat(sample, ", ")))
         end
     end
     return result
@@ -145,7 +145,9 @@ end
 ---@return table<string, integer>
 local function get_expected_min_counts(products)
     local expected = {}
-    if not products then return expected end
+    if not products then
+        return expected
+    end
     for _, product in pairs(products) do
         if product.type == "item" then
             local count = product.amount or product.amount_min or product.amount_max or 1
@@ -178,7 +180,9 @@ local function find_item_drops(surface, position, want)
         },
         type = "item-entity",
     })
-    if not ok or not drops then return {} end
+    if not ok or not drops then
+        return {}
+    end
 
     local filtered = {}
     for _, e in pairs(drops) do
@@ -196,17 +200,29 @@ end
 ---@return table<string, integer> moved
 local function sweep_drops_into_inventory(inventory, drops, want)
     local moved = {}
-    if not (inventory and inventory.valid) then return moved end
-    if not drops or #drops == 0 then return moved end
+    if not (inventory and inventory.valid) then
+        return moved
+    end
+    if not drops or #drops == 0 then
+        return moved
+    end
 
     for _, drop in ipairs(drops) do
-        if utils.is_empty(want) then break end
-        if not (drop and drop.valid) then goto next_drop end
+        if utils.is_empty(want) then
+            break
+        end
+        if not (drop and drop.valid) then
+            goto next_drop
+        end
         local stack = drop.stack
-        if not (stack and stack.valid_for_read) then goto next_drop end
+        if not (stack and stack.valid_for_read) then
+            goto next_drop
+        end
 
         local need = want[stack.name] or 0
-        if need <= 0 then goto next_drop end
+        if need <= 0 then
+            goto next_drop
+        end
 
         local take = math.min(need, stack.count)
         local quality = stack.quality
@@ -237,10 +253,16 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(tile, inventory)
-    if not tile or not tile.valid then return false end
-    if not inventory or not inventory.valid then return false end
-    if not is_marked(tile) then return false end
-    
+    if not tile or not tile.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+    if not is_marked(tile) then
+        return false
+    end
+
     -- Check space for result
     local products = get_tile_products(tile)
     if products then
@@ -249,13 +271,15 @@ function behavior.can_execute(tile, inventory)
                 local count = product.amount or product.amount_max or product.amount_min or 1
                 local stack = { name = product.name, count = count }
                 if not utils.inventory_has_space(inventory, stack) then
-                    dlog(string.format(
-                        "can_execute: no space for %s (tile=%s at %.0f,%.0f)",
-                        serialize(stack),
-                        tile.name,
-                        tile.position.x,
-                        tile.position.y
-                    ))
+                    dlog(
+                        string.format(
+                            "can_execute: no space for %s (tile=%s at %.0f,%.0f)",
+                            serialize(stack),
+                            tile.name,
+                            tile.position.x,
+                            tile.position.y
+                        )
+                    )
                     return false
                 end
             end
@@ -272,8 +296,12 @@ end
 ---@param anchor_data table
 ---@return boolean
 function behavior.execute(spider_data, tile, inventory, anchor_data)
-    if not tile or not tile.valid then return false end
-    if not inventory or not inventory.valid then return false end
+    if not tile or not tile.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
 
     -- Always operate on the current tile instance at this position (LuaTile objects
     -- can become invalid if the tile changes).
@@ -281,22 +309,37 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
     local position = tile.position
     tile = (surface and (surface.valid == nil or surface.valid) and surface.get_tile(position)) or tile
 
-    if not behavior.can_execute(tile, inventory) then return false end
+    if not behavior.can_execute(tile, inventory) then
+        return false
+    end
 
     local before_name = tile.name
     local before_hidden = tile.hidden_tile
 
-    -- Align with the confirmed working code: mine via the anchor/player entity,
-    -- not the spiderling entity.
+    -- Tiles must be mined via a `LuaControl` (player or character), not via the spider.
+    -- If we have a player anchor, prefer the player control; otherwise fall back to the
+    -- anchor entity (for tests where we spawn a `character` directly).
+    -- Docs: `mise run docs -- open runtime:method:LuaControl.mine_tile`
     local anchor_entity = anchor_data and anchor_data.entity or nil
-    if not (anchor_entity and anchor_entity.valid and anchor_entity.mine_tile) then
-        dlog(string.format(
-            "execute: no valid anchor mine_tile (tile=%s at %.0f,%.0f anchor=%s)",
-            tile.name,
-            tile.position.x,
-            tile.position.y,
-            anchor_entity and (anchor_entity.name .. ":" .. (anchor_entity.type or "?")) or "nil"
-        ))
+    local control = nil
+    if anchor_data and anchor_data.player_index then
+        local player = game and game.get_player(anchor_data.player_index)
+        if player and player.valid then
+            control = player
+        end
+    end
+    control = control or anchor_entity
+
+    if not (control and control.valid and control.mine_tile) then
+        dlog(
+            string.format(
+                "execute: no valid LuaControl.mine_tile (tile=%s at %.0f,%.0f control=%s)",
+                tile.name,
+                tile.position.x,
+                tile.position.y,
+                control and (control.name .. ":" .. (control.type or "?")) or "nil"
+            )
+        )
         return false
     end
 
@@ -312,28 +355,28 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
         local spider_pos = spider_entity and spider_entity.valid and spider_entity.position or nil
         local dist_spider = spider_pos and utils.distance(spider_pos, tile.position) or -1
         local dist_anchor = utils.distance(anchor_entity.position, tile.position)
-        dlog(string.format(
-            "execute: spider=%s dist_spider=%.2f dist_anchor=%.2f anchor=%s:%s tile=%s key=%s expected=%s",
-            spider_data and tostring(spider_data.entity_id) or "nil",
-            dist_spider,
-            dist_anchor,
-            anchor_entity.name,
-            anchor_entity.type or "?",
-            tile.name,
-            utils.get_tile_key(tile),
-            format_expected(expected)
-        ))
+        dlog(
+            string.format(
+                "execute: spider=%s dist_spider=%.2f dist_anchor=%.2f anchor=%s:%s tile=%s key=%s expected=%s",
+                spider_data and tostring(spider_data.entity_id) or "nil",
+                dist_spider,
+                dist_anchor,
+                anchor_entity.name,
+                anchor_entity.type or "?",
+                tile.name,
+                utils.get_tile_key(tile),
+                format_expected(expected)
+            )
+        )
         if products then
             dlog("execute: raw products=" .. serialize(products))
         end
     end
 
-    -- Factorio binds LuaObject methods, so the common call form is `anchor_entity.mine_tile(tile)`.
-    local ok, success = pcall(anchor_entity.mine_tile, tile)
-    if not ok then
-        -- Backwards-compatibility: some environments might expect the entity as the first arg.
-        ok, success = pcall(anchor_entity.mine_tile, anchor_entity, tile)
-    end
+    -- `LuaControl.mine_tile(tile)` is a LuaObject method; call it in the normal bound form.
+    local ok, success = pcall(function()
+        return control.mine_tile(tile)
+    end)
     if not ok then
         dlog("execute: mine_tile pcall failed: " .. tostring(success))
         dprint(anchor_data, "mine_tile errored; check factorio-current.log for [TileDecon]")
@@ -343,10 +386,12 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
     if success then
         local after_tile = (surface and (surface.valid == nil or surface.valid) and surface.get_tile(position)) or nil
         if debug_enabled() then
-            dlog(string.format(
-                "execute: mine_tile ok=true success=true after_tile=%s",
-                after_tile and after_tile.valid and after_tile.name or "nil"
-            ))
+            dlog(
+                string.format(
+                    "execute: mine_tile ok=true success=true after_tile=%s",
+                    after_tile and after_tile.valid and after_tile.name or "nil"
+                )
+            )
         end
 
         local missing = {}
@@ -376,7 +421,8 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
                     if stack and stack.valid_for_read then
                         local q = stack.quality
                         local qn = type(q) == "table" and q.name or q
-                        drop_summary[#drop_summary + 1] = string.format("%sx%d[%s]", stack.name, stack.count, tostring(qn or "normal"))
+                        drop_summary[#drop_summary + 1] =
+                            string.format("%sx%d[%s]", stack.name, stack.count, tostring(qn or "normal"))
                     end
                 end
                 table.sort(drop_summary)
@@ -419,12 +465,14 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
     -- and grant the mined products manually.
     local replacement = before_hidden or (tile.prototype and tile.prototype.hidden_tile) or nil
     if not replacement or replacement == before_name then
-        dlog(string.format(
-            "fallback: no replacement tile (before=%s hidden=%s proto_hidden=%s)",
-            tostring(before_name),
-            tostring(before_hidden),
-            tostring(tile.prototype and tile.prototype.hidden_tile)
-        ))
+        dlog(
+            string.format(
+                "fallback: no replacement tile (before=%s hidden=%s proto_hidden=%s)",
+                tostring(before_name),
+                tostring(before_hidden),
+                tostring(tile.prototype and tile.prototype.hidden_tile)
+            )
+        )
         return false
     end
 
@@ -454,12 +502,14 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
                 end
                 local inserted = inventory.insert({ name = product.name, count = count })
                 if debug_enabled() and inserted < count then
-                    dlog(string.format(
-                        "fallback: inventory.insert short (item=%s want=%d inserted=%d)",
-                        product.name,
-                        count,
-                        inserted
-                    ))
+                    dlog(
+                        string.format(
+                            "fallback: inventory.insert short (item=%s want=%d inserted=%d)",
+                            product.name,
+                            count,
+                            inserted
+                        )
+                    )
                 end
             end
             ::continue_product::

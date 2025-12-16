@@ -12,7 +12,9 @@ local behavior = {
 ---@param id table?
 ---@return {name:string, quality:string}?
 local function normalize_item_id(id)
-    if not id then return nil end
+    if not id then
+        return nil
+    end
 
     local name = id.name
     if type(name) == "table" then
@@ -36,9 +38,15 @@ end
 ---@param items table?
 ---@return table[]
 local function get_inventory_positions(items)
-    if not items then return {} end
-    if items.in_inventory then return items.in_inventory end
-    if items[1] then return items end
+    if not items then
+        return {}
+    end
+    if items.in_inventory then
+        return items.in_inventory
+    end
+    if items[1] then
+        return items
+    end
     return {}
 end
 
@@ -73,13 +81,21 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(proxy, inventory)
-    if not proxy or not proxy.valid then return false end
-    if not inventory or not inventory.valid then return false end
+    if not proxy or not proxy.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
 
     -- Don't handle proxies for entities being upgraded
     local target = proxy.proxy_target
-    if not target or not target.valid then return false end
-    if target.to_be_upgraded() then return false end
+    if not target or not target.valid then
+        return false
+    end
+    if target.to_be_upgraded() then
+        return false
+    end
 
     -- Check insert plan
     local insert_plan = proxy.insert_plan
@@ -97,7 +113,9 @@ function behavior.can_execute(proxy, inventory)
     if removal_plan and removal_plan[1] then
         for _, plan in pairs(removal_plan) do
             local item = normalize_item_id(plan and plan.id)
-            if item and utils.inventory_has_space(inventory, { name = item.name, count = 1, quality = item.quality }) then
+            if
+                item and utils.inventory_has_space(inventory, { name = item.name, count = 1, quality = item.quality })
+            then
                 return true
             end
         end
@@ -113,11 +131,17 @@ end
 ---@param anchor_data table
 ---@return boolean
 function behavior.execute(spider_data, proxy, inventory, anchor_data)
-    if not proxy or not proxy.valid then return false end
-    if not inventory or not inventory.valid then return false end
+    if not proxy or not proxy.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
 
     local target = proxy.proxy_target
-    if not target or not target.valid then return false end
+    if not target or not target.valid then
+        return false
+    end
 
     local did_something = false
 
@@ -179,7 +203,9 @@ function behavior.execute(spider_data, proxy, inventory, anchor_data)
                     goto next_plan
                 end
 
-                if not utils.inventory_has_space(inventory, { name = item.name, count = 1, quality = item.quality }) then
+                if
+                    not utils.inventory_has_space(inventory, { name = item.name, count = 1, quality = item.quality })
+                then
                     return false
                 end
 

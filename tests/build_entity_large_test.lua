@@ -95,7 +95,9 @@ describe("build large entity ghosts", function()
         storage.global_enabled = original_global_enabled
 
         for _, e in ipairs(created) do
-            if e and e.valid then e.destroy() end
+            if e and e.valid then
+                e.destroy()
+            end
         end
     end)
 

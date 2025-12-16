@@ -25,7 +25,9 @@ describe("tasks", function()
 
     after_each(function()
         for _, e in ipairs(created) do
-            if e and e.valid then e.destroy() end
+            if e and e.valid then
+                e.destroy()
+            end
         end
     end)
 

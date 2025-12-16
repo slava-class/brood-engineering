@@ -22,7 +22,7 @@ local function setup_storage()
     storage.assigned_tasks = storage.assigned_tasks or {}
     storage.player_to_anchor = storage.player_to_anchor or {}
     storage.assignment_limits = storage.assignment_limits or {}
-    storage.global_enabled = storage.global_enabled ~= false  -- default true
+    storage.global_enabled = storage.global_enabled ~= false -- default true
     storage.anchor_id_counter = storage.anchor_id_counter or 0
     storage.spider_id_counter = storage.spider_id_counter or 0
     -- Deprecated: older versions used this for tile deconstruction confirmation.
@@ -49,7 +49,9 @@ end
 ---@param anchor_id string
 local function destroy_anchor(anchor_id)
     local anchor_data = anchor.get(anchor_id)
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     -- Copy spider IDs first, since recall() mutates the table.
     local spider_ids = {}
@@ -75,7 +77,9 @@ end
 ---------------------------------------------------------------------------
 
 local function get_assignment_limit(anchor_id)
-    if not anchor_id then return nil end
+    if not anchor_id then
+        return nil
+    end
     storage.assignment_limits = storage.assignment_limits or {}
     local limit = storage.assignment_limits[anchor_id]
     if not limit or limit.tick ~= game.tick then
@@ -86,7 +90,9 @@ local function get_assignment_limit(anchor_id)
 end
 
 local function assign_task_capped(spider_id, task, anchor_id)
-    if not task then return false end
+    if not task then
+        return false
+    end
     if not anchor_id and storage.spider_to_anchor then
         anchor_id = storage.spider_to_anchor[spider_id]
     end
@@ -100,12 +106,7 @@ local function assign_task_capped(spider_id, task, anchor_id)
         local desc = "nil"
         if target and target.valid then
             if task.tile then
-                desc = string.format(
-                    "tile:%s@%.0f,%.0f",
-                    target.name,
-                    target.position.x,
-                    target.position.y
-                )
+                desc = string.format("tile:%s@%.0f,%.0f", target.name, target.position.x, target.position.y)
             elseif task.entity then
                 desc = string.format(
                     "entity:%s(%s)@%.1f,%.1f",
@@ -116,14 +117,16 @@ local function assign_task_capped(spider_id, task, anchor_id)
                 )
             end
         end
-        utils.log(string.format(
-            "[Assign] anchor=%s spider=%s behavior=%s task=%s %s",
-            tostring(anchor_id or "?"),
-            tostring(spider_id),
-            tostring(task.behavior_name or "?"),
-            tostring(task.id or "?"),
-            desc
-        ))
+        utils.log(
+            string.format(
+                "[Assign] anchor=%s spider=%s behavior=%s task=%s %s",
+                tostring(anchor_id or "?"),
+                tostring(spider_id),
+                tostring(task.behavior_name or "?"),
+                tostring(task.id or "?"),
+                desc
+            )
+        )
     end
 
     spider.assign_task(spider_id, task)
@@ -150,7 +153,9 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
 
     local status = spider_data.status
     local surface = anchor.get_surface(anchor_data)
-    if not surface then return end
+    if not surface then
+        return
+    end
     local force = anchor.get_force(anchor_data)
 
     -- Handle different states
@@ -187,32 +192,30 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
                 end
             end
         end
+    elseif status == "moving_to_task" then
+        -- Check if task is still valid
+        if not spider.is_task_valid(spider_data) then
+            spider.clear_task(spider_id)
+            return
+        end
 
-	    elseif status == "moving_to_task" then
-	        -- Check if task is still valid
-	        if not spider.is_task_valid(spider_data) then
-	            spider.clear_task(spider_id)
-	            return
-	        end
+        -- If we're already close enough, execute even if the autopilot
+        -- completion event doesn't fire (e.g., destination already reached).
+        if spider.has_arrived(spider_data) then
+            spider.arrive_at_task(spider_id)
+            tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
+            spider.complete_task(spider_id)
+            return
+        end
 
-	        -- If we're already close enough, execute even if the autopilot
-	        -- completion event doesn't fire (e.g., destination already reached).
-	        if spider.has_arrived(spider_data) then
-	            spider.arrive_at_task(spider_id)
-	            tasks.execute(spider_data, spider_data.task, inventory, anchor_data)
-	            spider.complete_task(spider_id)
-	            return
-	        end
-
-	        -- Basic stuck recovery.
-	        if spider.is_stuck(spider_data) then
-	            spider.jump(spider_id)
-	        end
-
-	    elseif status == "executing" then
-	        -- Shouldn't stay in this state long (instant execution)
-	        -- Just complete and move on
-	        spider.complete_task(spider_id)
+        -- Basic stuck recovery.
+        if spider.is_stuck(spider_data) then
+            spider.jump(spider_id)
+        end
+    elseif status == "executing" then
+        -- Shouldn't stay in this state long (instant execution)
+        -- Just complete and move on
+        spider.complete_task(spider_id)
     end
 end
 
@@ -272,7 +275,9 @@ local function main_loop()
 
         local anchor_area = anchor.get_expanded_work_area(anchor_data)
         local surface = anchor.get_surface(anchor_data)
-        if not surface then return end
+        if not surface then
+            return
+        end
         local force = anchor.get_force(anchor_data)
 
         -- Check if any executable work exists in the area around this anchor
@@ -283,7 +288,9 @@ local function main_loop()
         local assignments_this_tick = limit and limit.count or 0
 
         for spider_id, spider_data in utils.random_pairs(anchor_data.spiders) do
-            if assignments_this_tick >= constants.max_assignments_per_tick then break end
+            if assignments_this_tick >= constants.max_assignments_per_tick then
+                break
+            end
             process_spider(spider_id, spider_data, anchor_data, inventory, anchor_area, anchor_id, work_exists)
             limit = get_assignment_limit(anchor_id)
             assignments_this_tick = limit and limit.count or assignments_this_tick
@@ -292,8 +299,7 @@ local function main_loop()
         -- Anchor-level task assignment for idle spiders at anchor
         local idle_at_anchor = {}
         for spider_id, spider_data in pairs(anchor_data.spiders) do
-            if spider_data.status == "deployed_idle" and
-               spider.is_near_anchor(spider_data, anchor_data) then
+            if spider_data.status == "deployed_idle" and spider.is_near_anchor(spider_data, anchor_data) then
                 idle_at_anchor[#idle_at_anchor + 1] = spider_id
             end
         end
@@ -303,10 +309,13 @@ local function main_loop()
 
         -- Only compute the task list when we need it (assignment or sizing auto-deploy).
         local available_tasks = nil
-        if work_exists and (
-            (#idle_at_anchor > 0 and assignments_this_tick < constants.max_assignments_per_tick) or
-            (has_spiderlings and spider_count < constants.max_spiders_per_anchor)
-        ) then
+        if
+            work_exists
+            and (
+                (#idle_at_anchor > 0 and assignments_this_tick < constants.max_assignments_per_tick)
+                or (has_spiderlings and spider_count < constants.max_spiders_per_anchor)
+            )
+        then
             available_tasks = tasks.find_all(surface, anchor_area, force, inventory)
         end
 
@@ -316,8 +325,12 @@ local function main_loop()
             end
 
             for _, spider_id in ipairs(idle_at_anchor) do
-                if #available_tasks == 0 then break end
-                if assignments_this_tick >= constants.max_assignments_per_tick then break end
+                if #available_tasks == 0 then
+                    break
+                end
+                if assignments_this_tick >= constants.max_assignments_per_tick then
+                    break
+                end
 
                 local task = table.remove(available_tasks, 1)
                 if assign_task_capped(spider_id, task, anchor_id) then
@@ -345,15 +358,17 @@ local function main_loop()
             local needed_spiders = desired_spiders - spider_count
 
             if debug_enabled() and needed_spiders > 0 then
-                utils.log(string.format(
-                    "[Deploy] anchor=%s pending=%d assigned=%d unassigned=%d spiders=%d need=%d",
-                    anchor_id,
-                    pending_tasks,
-                    assigned_count,
-                    #available_tasks,
-                    spider_count,
-                    needed_spiders
-                ))
+                utils.log(
+                    string.format(
+                        "[Deploy] anchor=%s pending=%d assigned=%d unassigned=%d spiders=%d need=%d",
+                        anchor_id,
+                        pending_tasks,
+                        assigned_count,
+                        #available_tasks,
+                        spider_count,
+                        needed_spiders
+                    )
+                )
 
                 local counts = {}
                 for _, t in ipairs(available_tasks) do
@@ -402,10 +417,12 @@ local function main_loop()
             end
 
             local deploys = 0
-            while needed_spiders > 0 and
-                  deploys < constants.max_deploys_per_tick and
-                  spider_count < constants.max_spiders_per_anchor and
-                  has_spiderlings do
+            while
+                needed_spiders > 0
+                and deploys < constants.max_deploys_per_tick
+                and spider_count < constants.max_spiders_per_anchor
+                and has_spiderlings
+            do
                 spider.deploy(anchor_id)
                 deploys = deploys + 1
                 needed_spiders = needed_spiders - 1
@@ -421,12 +438,13 @@ local function main_loop()
             anchor_data.no_work_since = nil
         end
 
-        if anchor_data.no_work_since and
-           game.tick - anchor_data.no_work_since > constants.no_work_recall_timeout_ticks then
+        if
+            anchor_data.no_work_since
+            and game.tick - anchor_data.no_work_since > constants.no_work_recall_timeout_ticks
+        then
             local recall_ids = {}
             for spider_id, spider_data in pairs(anchor_data.spiders) do
-                if spider_data.status == "deployed_idle" and
-                   spider.is_near_anchor(spider_data, anchor_data) then
+                if spider_data.status == "deployed_idle" and spider.is_near_anchor(spider_data, anchor_data) then
                     recall_ids[#recall_ids + 1] = spider_id
                 end
             end
@@ -450,7 +468,9 @@ end
 
 local function toggle_global(event)
     local name = event.prototype_name or event.input_name
-    if name ~= "brood-toggle" then return end
+    if name ~= "brood-toggle" then
+        return
+    end
 
     storage.global_enabled = not storage.global_enabled
 
@@ -474,9 +494,7 @@ local function toggle_global(event)
 
     local player = game.get_player(event.player_index)
     if player then
-        player.print(storage.global_enabled and
-            "[Brood] Spiders enabled" or
-            "[Brood] Spiders disabled - all recalled")
+        player.print(storage.global_enabled and "[Brood] Spiders enabled" or "[Brood] Spiders disabled - all recalled")
     end
 end
 
@@ -501,16 +519,22 @@ end
 
 local function on_player_changed_surface(event)
     local player = game.get_player(event.player_index)
-    if not player or not player.valid then return end
+    if not player or not player.valid then
+        return
+    end
 
     local anchor_data = anchor.get_for_player(player)
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     -- Update anchor entity reference
     local new_entity = utils.get_player_entity(player)
     if new_entity and new_entity.valid then
         local anchor_id = anchor.get_id_for_player(player)
-        if not anchor_id then return end
+        if not anchor_id then
+            return
+        end
         anchor.update_entity(anchor_id, new_entity)
 
         -- Teleport all spiders
@@ -522,10 +546,14 @@ end
 
 local function on_player_driving_changed_state(event)
     local player = game.get_player(event.player_index)
-    if not player or not player.valid then return end
+    if not player or not player.valid then
+        return
+    end
 
     local anchor_id = anchor.get_id_for_player(player)
-    if not anchor_id then return end
+    if not anchor_id then
+        return
+    end
 
     local new_entity = utils.get_player_entity(player)
     if new_entity and new_entity.valid then
@@ -552,17 +580,23 @@ end
 
 local function on_entity_died(event)
     local entity = event.entity
-    if not entity or entity.name ~= "spiderling" then return end
+    if not entity or entity.name ~= "spiderling" then
+        return
+    end
 
     spider.on_death(entity)
 end
 
 local function on_object_destroyed(event)
     local entity_id = event.useful_id
-    if not entity_id then return end
+    if not entity_id then
+        return
+    end
 
     local spider_id = storage.entity_to_spider[entity_id]
-    if not spider_id then return end
+    if not spider_id then
+        return
+    end
 
     -- Clean up tracking
     local anchor_id = storage.spider_to_anchor[spider_id]
@@ -587,7 +621,9 @@ end
 
 local function on_spider_command_completed(event)
     local vehicle = event.vehicle
-    if not vehicle or not vehicle.valid or vehicle.name ~= "spiderling" then return end
+    if not vehicle or not vehicle.valid or vehicle.name ~= "spiderling" then
+        return
+    end
 
     -- Find the corresponding spider_id/anchor_id
     local spider_id
@@ -604,10 +640,14 @@ local function on_spider_command_completed(event)
         end
     end
 
-    if not spider_id or not anchor_id then return end
+    if not spider_id or not anchor_id then
+        return
+    end
 
     local anchor_data = anchor.get(anchor_id)
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     local spider_data = anchor_data.spiders[spider_id]
     if not spider_data or spider_data.status ~= "moving_to_task" or not spider_data.task then
@@ -632,7 +672,9 @@ local function on_spider_command_completed(event)
     end
 
     local inventory = anchor.get_inventory(anchor_data)
-    if not inventory or not inventory.valid then return end
+    if not inventory or not inventory.valid then
+        return
+    end
 
     -- Mark as arrived and execute the current task
     spider.arrive_at_task(spider_id)
@@ -661,10 +703,14 @@ end
 
 local function on_trigger_created_entity(event)
     local entity = event.entity
-    if not entity or entity.name ~= "spiderling" then return end
+    if not entity or entity.name ~= "spiderling" then
+        return
+    end
 
     local source = event.source
-    if not source or not source.valid then return end
+    if not source or not source.valid then
+        return
+    end
 
     -- Find the player
     local player
@@ -672,14 +718,20 @@ local function on_trigger_created_entity(event)
         player = source.player
     end
 
-    if not player or not player.valid then return end
+    if not player or not player.valid then
+        return
+    end
 
     -- Get anchor and register spider
     local anchor_id = anchor.get_id_for_player(player)
-    if not anchor_id then return end
+    if not anchor_id then
+        return
+    end
 
     local anchor_data = anchor.get(anchor_id)
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     -- Register the spider
     local entity_id = utils.get_entity_id(entity)
@@ -767,16 +819,16 @@ script.on_event(defines.events.on_trigger_created_entity, on_trigger_created_ent
 ---------------------------------------------------------------------------
 
 if script.active_mods and script.active_mods["factorio-test"] then
-	    if remote and remote.add_interface and not (remote.interfaces and remote.interfaces["brood-engineering-test"]) then
-	        remote.add_interface("brood-engineering-test", {
-	            set_debug_logging_override = function(enabled)
-	                storage.debug_logging_override = enabled
-	            end,
-	            reset_assignment_limits = function()
-	                storage.assignment_limits = {}
-	            end,
-	            try_assign_task_capped = function(spider_id, task, anchor_id)
-	                return assign_task_capped(spider_id, task, anchor_id)
+    if remote and remote.add_interface and not (remote.interfaces and remote.interfaces["brood-engineering-test"]) then
+        remote.add_interface("brood-engineering-test", {
+            set_debug_logging_override = function(enabled)
+                storage.debug_logging_override = enabled
+            end,
+            reset_assignment_limits = function()
+                storage.assignment_limits = {}
+            end,
+            try_assign_task_capped = function(spider_id, task, anchor_id)
+                return assign_task_capped(spider_id, task, anchor_id)
             end,
             get_assignment_count = function(anchor_id)
                 local limit = get_assignment_limit(anchor_id)
@@ -794,7 +846,9 @@ if script.active_mods and script.active_mods["factorio-test"] then
     -- When running under FactorioTest via CLI, auto-start tests on the next tick.
     -- This avoids needing to click "Reload mods and run tests" in the UI.
     local function try_start_factoriotests()
-        if not remote or not remote.call or not remote.interfaces then return end
+        if not remote or not remote.call or not remote.interfaces then
+            return
+        end
         if remote.interfaces["factorio-test"] then
             pcall(function()
                 remote.call("factorio-test", "runTests")
@@ -811,11 +865,18 @@ if script.active_mods and script.active_mods["factorio-test"] then
         script.on_nth_tick(1, nil)
     end)
 
-	    require("__factorio-test__/init")(
-	        { "tests/assignment_limit_test", "tests/tasks_test", "tests/spider_test", "tests/deploy_recall_test", "tests/idle_recall_test", "tests/tile_deconstruct_test", "tests/build_entity_large_test", "tests/module_insert_test", "tests/recall_spill_test" },
-	        {
-	            log_passed_tests = true,
-	            log_skipped_tests = true,
-	        }
-	    )
-	end
+    require("__factorio-test__/init")({
+        "tests/assignment_limit_test",
+        "tests/tasks_test",
+        "tests/spider_test",
+        "tests/deploy_recall_test",
+        "tests/idle_recall_test",
+        "tests/tile_deconstruct_test",
+        "tests/build_entity_large_test",
+        "tests/module_insert_test",
+        "tests/recall_spill_test",
+    }, {
+        log_passed_tests = true,
+        log_skipped_tests = true,
+    })
+end

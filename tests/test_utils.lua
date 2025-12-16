@@ -2,7 +2,9 @@ local M = {}
 
 ---@param enabled boolean|nil
 function M.set_debug_logging_override(enabled)
-    if not (remote and remote.call) then return end
+    if not (remote and remote.call) then
+        return
+    end
     pcall(function()
         remote.call("brood-engineering-test", "set_debug_logging_override", enabled)
     end)
@@ -19,4 +21,3 @@ function M.with_debug_logging(fn)
 end
 
 return M
-

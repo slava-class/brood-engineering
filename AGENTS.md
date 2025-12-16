@@ -73,7 +73,12 @@ Notes:
 ## Tile Deconstruction Gotcha
 
 - Tiles ordered for deconstruction also create `deconstructible-tile-proxy` entities which are marked `to_be_deconstructed`.
-- Do not treat those proxies as entity deconstruction work; tile deconstruction must be handled via `LuaEntity.mine_tile` (see `scripts/behaviors/deconstruct_tile.lua`), and `deconstruct_entity` should ignore `entity.type == "deconstructible-tile-proxy"` to avoid double-counting tasks/spawning extra spiders.
+- Do not treat those proxies as entity deconstruction work; tile deconstruction must be handled via `LuaControl.mine_tile` (see `scripts/behaviors/deconstruct_tile.lua`), and `deconstruct_entity` should ignore `entity.type == "deconstructible-tile-proxy"` to avoid double-counting tasks/spawning extra spiders.
+
+Quick docs lookups:
+
+- `LuaControl.mine_tile` (what actually performs tile mining): `mise run docs -- open runtime:method:LuaControl.mine_tile`
+- `LuaPrototypes.quality` (dictionary keyed by quality name): `mise run docs -- open runtime/classes/LuaPrototypes.md#quality`
 
 ## Adding tests
 

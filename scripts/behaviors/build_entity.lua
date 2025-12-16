@@ -27,12 +27,18 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(ghost, inventory)
-    if not ghost or not ghost.valid then return false end
-    if not inventory or not inventory.valid then return false end
+    if not ghost or not ghost.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
 
     -- Get item needed to build
     local items = ghost.ghost_prototype.items_to_place_this
-    if not items or not items[1] then return false end
+    if not items or not items[1] then
+        return false
+    end
 
     local item_name = items[1].name
     local quality = ghost.quality
@@ -47,13 +53,21 @@ end
 ---@param padding number
 ---@return MapPosition? position
 local function find_reposition(spider_entity, ghost, padding)
-    if not (spider_entity and spider_entity.valid) then return nil end
-    if not (ghost and ghost.valid and ghost.type == "entity-ghost") then return nil end
+    if not (spider_entity and spider_entity.valid) then
+        return nil
+    end
+    if not (ghost and ghost.valid and ghost.type == "entity-ghost") then
+        return nil
+    end
     local surface = spider_entity.surface
-    if not (surface and (surface.valid == nil or surface.valid)) then return nil end
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return nil
+    end
 
     local box = ghost.bounding_box
-    if not (box and box.left_top and box.right_bottom) then return nil end
+    if not (box and box.left_top and box.right_bottom) then
+        return nil
+    end
 
     local mid_x = (box.left_top.x + box.right_bottom.x) / 2
     local mid_y = (box.left_top.y + box.right_bottom.y) / 2
@@ -92,10 +106,12 @@ end
 ---@return LuaEntity? revived_entity
 ---@return LuaEntity? proxy
 local function revive_ghost(ghost, options)
-    local ok, collided_items, revived_entity, proxy = pcall(ghost.revive, options)
-    if not ok then
-        ok, collided_items, revived_entity, proxy = pcall(ghost.revive, ghost, options)
-    end
+    -- `LuaEntity.revive()` is a LuaObject method; wrap in a closure so we call it in the
+    -- normal `ghost.revive(options)` form.
+    -- Docs: `mise run docs -- open runtime:method:LuaEntity.revive`
+    local ok, collided_items, revived_entity, proxy = pcall(function()
+        return ghost.revive(options)
+    end)
     if not ok then
         return false, nil, nil, nil
     end
@@ -109,12 +125,18 @@ end
 ---@param anchor_data table
 ---@return boolean
 function behavior.execute(spider_data, ghost, inventory, anchor_data)
-    if not ghost or not ghost.valid then return false end
-    if not inventory or not inventory.valid then return false end
+    if not ghost or not ghost.valid then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
 
     -- Get item needed
     local items = ghost.ghost_prototype.items_to_place_this
-    if not items or not items[1] then return false end
+    if not items or not items[1] then
+        return false
+    end
 
     local item_name = items[1].name
     local item_count = items[1].count or 1
@@ -145,8 +167,9 @@ function behavior.execute(spider_data, ghost, inventory, anchor_data)
         local spider_entity = spider_data.entity
         local reposition = find_reposition(spider_entity, ghost, 6)
         if reposition then
-            pcall(spider_entity.teleport, reposition)
-            pcall(spider_entity.teleport, spider_entity, reposition)
+            pcall(function()
+                spider_entity.teleport(reposition)
+            end)
         end
 
         local ok, _, revived = revive_ghost(ghost, options)
@@ -160,8 +183,7 @@ function behavior.execute(spider_data, ghost, inventory, anchor_data)
         inventory.remove({ name = item_name, count = item_count, quality = quality_name })
 
         -- Optional: Show item projectile
-        if settings.global["brood-show-item-projectiles"] and
-           settings.global["brood-show-item-projectiles"].value then
+        if settings.global["brood-show-item-projectiles"] and settings.global["brood-show-item-projectiles"].value then
             local spider_entity = spider_data.entity
             local anchor_entity = anchor_data.entity
             if spider_entity and spider_entity.valid and anchor_entity and anchor_entity.valid then

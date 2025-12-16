@@ -16,32 +16,36 @@ local behavior = {
 ---@param force LuaForce[]
 ---@return boolean
 local function is_blocking_ghost(entity, force)
-    if not entity or not entity.valid then return false end
-    
+    if not entity or not entity.valid then
+        return false
+    end
+
     local surface = entity.surface
     local box = entity.bounding_box
-    
+
     -- Find ghosts in the same area
     local ghosts = surface.find_entities_filtered({
         area = box,
         force = force,
         type = "entity-ghost",
     })
-    
+
     -- Check if any ghost overlaps with this entity
     for _, ghost in pairs(ghosts) do
         if ghost.valid then
             local ghost_box = ghost.bounding_box
             -- Simple bounding box overlap check
-            if box.left_top.x < ghost_box.right_bottom.x and
-               box.right_bottom.x > ghost_box.left_top.x and
-               box.left_top.y < ghost_box.right_bottom.y and
-               box.right_bottom.y > ghost_box.left_top.y then
+            if
+                box.left_top.x < ghost_box.right_bottom.x
+                and box.right_bottom.x > ghost_box.left_top.x
+                and box.left_top.y < ghost_box.right_bottom.y
+                and box.right_bottom.y > ghost_box.left_top.y
+            then
                 return true
             end
         end
     end
-    
+
     return false
 end
 
@@ -56,14 +60,14 @@ function behavior.find_tasks(surface, area, force)
         force = force,
         to_be_deconstructed = true,
     })
-    
+
     local blocking = {}
     for _, entity in pairs(decon_entities) do
         if is_blocking_ghost(entity, force) then
             blocking[#blocking + 1] = entity
         end
     end
-    
+
     return blocking
 end
 
@@ -78,14 +82,14 @@ local function get_mine_result(entity)
         end
         return nil
     end
-    
+
     local prototype = entity.prototype
     local mineable = prototype.mineable_properties
-    
+
     if not mineable or not mineable.products then
         return nil
     end
-    
+
     for _, product in pairs(mineable.products) do
         if product.type == "item" then
             local amount = product.amount or product.amount_max or 1
@@ -96,7 +100,7 @@ local function get_mine_result(entity)
             }
         end
     end
-    
+
     return nil
 end
 
@@ -105,27 +109,35 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(entity, inventory)
-    if not entity or not entity.valid then return false end
-    if not entity.to_be_deconstructed() then return false end
-    if not inventory or not inventory.valid then return false end
-    
+    if not entity or not entity.valid then
+        return false
+    end
+    if not entity.to_be_deconstructed() then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+
     -- Cliffs need explosives
     if entity.type == "cliff" then
-        for name, quality in pairs(prototypes.quality) do
-            local item = { name = "cliff-explosives", quality = quality }
+        -- `prototypes.quality` is keyed by quality name; pass the key (QualityID), not the prototype table.
+        -- Docs: `mise run docs -- open runtime/classes/LuaPrototypes.md#quality`
+        for quality_name, _ in pairs(prototypes.quality) do
+            local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
                 return true
             end
         end
         return false
     end
-    
+
     -- Check space for result
     local result = get_mine_result(entity)
     if result then
         return utils.inventory_has_space(inventory, result)
     end
-    
+
     return true
 end
 

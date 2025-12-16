@@ -60,16 +60,18 @@ describe("deploy and recall", function()
         storage.global_enabled = original_global_enabled
 
         for _, e in ipairs(created) do
-            if e and e.valid then e.destroy() end
+            if e and e.valid then
+                e.destroy()
+            end
         end
     end)
 
-	    test("deploy consumes spiderling and registers spider", function()
-	        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-	        assert.are_equal(1, inventory.get_item_count("spiderling"))
+    test("deploy consumes spiderling and registers spider", function()
+        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        assert.are_equal(1, inventory.get_item_count("spiderling"))
 
-	        local spider_id = spider.deploy(anchor_id)
-	        assert.is_not_nil(spider_id)
+        local spider_id = spider.deploy(anchor_id)
+        assert.is_not_nil(spider_id)
 
         assert.are_equal(0, inventory.get_item_count("spiderling"))
         assert.are_equal(anchor_id, storage.spider_to_anchor[spider_id])
@@ -77,15 +79,15 @@ describe("deploy and recall", function()
         local deployed_data = anchor_data.spiders[spider_id]
         assert.is_not_nil(deployed_data)
         assert.are_equal("deployed_idle", deployed_data.status)
-	        assert.is_true(deployed_data.entity and deployed_data.entity.valid)
-	        assert.are_equal("spiderling", deployed_data.entity.name)
-	        assert.are_equal(anchor_entity.unit_number, deployed_data.entity.follow_target.unit_number)
+        assert.is_true(deployed_data.entity and deployed_data.entity.valid)
+        assert.are_equal("spiderling", deployed_data.entity.name)
+        assert.are_equal(anchor_entity.unit_number, deployed_data.entity.follow_target.unit_number)
 
-	        -- Cleanup: recall so we don't leave orphaned spiders between tests/runs.
-	        after_test(function()
-	            spider.recall(spider_id)
-	        end)
-	    end)
+        -- Cleanup: recall so we don't leave orphaned spiders between tests/runs.
+        after_test(function()
+            spider.recall(spider_id)
+        end)
+    end)
 
     test("recall returns spiderling and cleans tracking", function()
         local inventory = anchor_entity.get_inventory(defines.inventory.chest)

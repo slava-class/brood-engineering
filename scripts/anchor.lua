@@ -47,10 +47,14 @@ end
 ---@param player LuaPlayer
 ---@return table? anchor_data
 function anchor.get_for_player(player)
-    if not player or not player.valid then return nil end
+    if not player or not player.valid then
+        return nil
+    end
 
     local anchor_id = storage.player_to_anchor and storage.player_to_anchor[player.index]
-    if not anchor_id then return nil end
+    if not anchor_id then
+        return nil
+    end
 
     return storage.anchors[anchor_id]
 end
@@ -59,7 +63,9 @@ end
 ---@param player LuaPlayer
 ---@return string? anchor_id
 function anchor.get_id_for_player(player)
-    if not player or not player.valid then return nil end
+    if not player or not player.valid then
+        return nil
+    end
     return storage.player_to_anchor and storage.player_to_anchor[player.index]
 end
 
@@ -74,7 +80,9 @@ end
 ---@param anchor_id string
 function anchor.destroy(anchor_id)
     local anchor_data = storage.anchors[anchor_id]
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     -- Remove player mapping if player anchor
     if anchor_data.type == "player" and anchor_data.player_index then
@@ -92,7 +100,9 @@ end
 ---@param new_entity LuaEntity
 function anchor.update_entity(anchor_id, new_entity)
     local anchor_data = storage.anchors[anchor_id]
-    if not anchor_data then return end
+    if not anchor_data then
+        return
+    end
 
     anchor_data.entity = new_entity
     if new_entity and new_entity.valid then
@@ -106,7 +116,9 @@ end
 ---@return boolean position_changed_significantly
 function anchor.update_position(anchor_data)
     local entity = anchor_data.entity
-    if not entity or not entity.valid then return false end
+    if not entity or not entity.valid then
+        return false
+    end
 
     local old_pos = anchor_data.position
     local new_pos = entity.position
@@ -123,10 +135,14 @@ end
 ---@param anchor_data table
 ---@return LuaInventory?
 function anchor.get_inventory(anchor_data)
-    if not anchor_data then return nil end
+    if not anchor_data then
+        return nil
+    end
 
     local entity = anchor_data.entity
-    if not entity or not entity.valid then return nil end
+    if not entity or not entity.valid then
+        return nil
+    end
 
     return utils.get_entity_inventory(entity)
 end
@@ -151,10 +167,18 @@ function anchor.get_expanded_work_area(anchor_data)
         local spider = spider_data.entity
         if spider and spider.valid then
             local sp = spider.position
-            if sp.x < min_x then min_x = sp.x end
-            if sp.x > max_x then max_x = sp.x end
-            if sp.y < min_y then min_y = sp.y end
-            if sp.y > max_y then max_y = sp.y end
+            if sp.x < min_x then
+                min_x = sp.x
+            end
+            if sp.x > max_x then
+                max_x = sp.x
+            end
+            if sp.y < min_y then
+                min_y = sp.y
+            end
+            if sp.y > max_y then
+                max_y = sp.y
+            end
         end
     end
 
@@ -208,7 +232,9 @@ end
 ---@return integer count
 function anchor.has_spiderlings_in_inventory(anchor_data)
     local inventory = anchor.get_inventory(anchor_data)
-    if not inventory then return false, 0 end
+    if not inventory then
+        return false, 0
+    end
 
     local count = inventory.get_item_count("spiderling")
     return count > 0, count
@@ -218,9 +244,7 @@ end
 ---@param anchor_data table
 ---@return boolean
 function anchor.is_valid(anchor_data)
-    return anchor_data
-        and anchor_data.entity
-        and anchor_data.entity.valid
+    return anchor_data and anchor_data.entity and anchor_data.entity.valid
 end
 
 --- Internal iterator for anchors

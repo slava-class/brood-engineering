@@ -2,6 +2,7 @@ local spider = require("scripts/spider")
 local anchor = require("scripts/anchor")
 local tasks = require("scripts/tasks")
 local constants = require("scripts/constants")
+local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 
 describe("tile deconstruction", function()
     local surface
@@ -75,7 +76,9 @@ describe("tile deconstruction", function()
         storage.global_enabled = original_global_enabled
 
         for _, e in ipairs(created) do
-            if e and e.valid then e.destroy() end
+            if e and e.valid then
+                e.destroy()
+            end
         end
     end)
 
@@ -87,7 +90,9 @@ describe("tile deconstruction", function()
         local tile = surface.get_tile(tile_pos)
         tile.order_deconstruction(force)
         do
-            local ok, marked = pcall(tile.to_be_deconstructed, tile)
+            local ok, marked = pcall(function()
+                return tile.to_be_deconstructed()
+            end)
             if ok then
                 assert.is_true(marked)
             end
@@ -130,6 +135,23 @@ describe("tile deconstruction", function()
 
             local tile = surface.get_tile(tile_pos)
             tile.order_deconstruction(force)
+        end
+
+        -- Gotcha: tile deconstruction orders create `deconstructible-tile-proxy` entities marked
+        -- `to_be_deconstructed`. Ensure the entity behavior ignores them so we don't double-count
+        -- work (and deploy extra spiders).
+        local proxy_entities = surface.find_entities_filtered({
+            area = { { base_pos.x - 10, base_pos.y - 10 }, { base_pos.x + 10, base_pos.y + 10 } },
+            type = "deconstructible-tile-proxy",
+        })
+        assert.is_true(proxy_entities and #proxy_entities > 0)
+        local entity_tasks = deconstruct_entity.find_tasks(
+            surface,
+            { { base_pos.x - 10, base_pos.y - 10 }, { base_pos.x + 10, base_pos.y + 10 } },
+            { force.name, "neutral" }
+        )
+        for _, e in ipairs(entity_tasks) do
+            assert.is_true(e.type ~= "deconstructible-tile-proxy")
         end
 
         local inventory = anchor_entity.get_inventory(defines.inventory.character_main)

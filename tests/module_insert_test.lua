@@ -94,7 +94,9 @@ describe("module insertion", function()
         storage.global_enabled = original_global_enabled
 
         for _, e in ipairs(created) do
-            if e and e.valid then e.destroy() end
+            if e and e.valid then
+                e.destroy()
+            end
         end
     end)
 
@@ -148,7 +150,10 @@ describe("module insertion", function()
             local count = module_inventory.get_item_count({ name = "speed-module", quality = "normal" })
             assert.is_true(count <= requested)
             if count == requested then
-                assert.are_equal(supplied - requested, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+                assert.are_equal(
+                    supplied - requested,
+                    inventory.get_item_count({ name = "speed-module", quality = "normal" })
+                )
                 assert.is_true(not proxy.valid or (not proxy.item_requests or next(proxy.item_requests) == nil))
                 assert.is_true(not proxy.valid or not (proxy.insert_plan and proxy.insert_plan[1]))
                 assert.is_true(not proxy.valid or not (proxy.removal_plan and proxy.removal_plan[1]))
@@ -212,7 +217,10 @@ describe("module insertion", function()
             local count = module_inventory.get_item_count({ name = "speed-module", quality = "normal" })
             assert.is_true(count <= requested)
             if count == requested then
-                assert.are_equal(supplied - requested, inventory.get_item_count({ name = "speed-module", quality = "normal" }))
+                assert.are_equal(
+                    supplied - requested,
+                    inventory.get_item_count({ name = "speed-module", quality = "normal" })
+                )
                 assert.is_true(not proxy.valid or (not proxy.item_requests or next(proxy.item_requests) == nil))
                 assert.is_true(not proxy.valid or not (proxy.insert_plan and proxy.insert_plan[1]))
                 assert.is_true(not proxy.valid or not (proxy.removal_plan and proxy.removal_plan[1]))

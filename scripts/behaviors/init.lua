@@ -13,6 +13,8 @@ local behaviors = {
 }
 
 -- Sort by priority (should already be in order, but just in case)
-table.sort(behaviors, function(a, b) return a.priority < b.priority end)
+table.sort(behaviors, function(a, b)
+    return a.priority < b.priority
+end)
 
 return behaviors

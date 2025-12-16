@@ -45,15 +45,15 @@ local function get_mine_result(entity)
         end
         return nil
     end
-    
+
     -- Regular entity
     local prototype = entity.prototype
     local mineable = prototype.mineable_properties
-    
+
     if not mineable or not mineable.products then
         return nil
     end
-    
+
     for _, product in pairs(mineable.products) do
         if product.type == "item" then
             local amount = product.amount or product.amount_max or 1
@@ -64,7 +64,7 @@ local function get_mine_result(entity)
             }
         end
     end
-    
+
     return nil
 end
 
@@ -73,29 +73,39 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function behavior.can_execute(entity, inventory)
-    if not entity or not entity.valid then return false end
-    if not entity.to_be_deconstructed() then return false end
-    if not inventory or not inventory.valid then return false end
-    if entity.type == "deconstructible-tile-proxy" then return false end
-    
+    if not entity or not entity.valid then
+        return false
+    end
+    if not entity.to_be_deconstructed() then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+    if entity.type == "deconstructible-tile-proxy" then
+        return false
+    end
+
     -- Cliffs need explosives
     if entity.type == "cliff" then
-        -- Check for cliff explosives of any quality
-        for name, quality in pairs(prototypes.quality) do
-            local item = { name = "cliff-explosives", quality = quality }
+        -- Check for cliff explosives of any quality.
+        -- `prototypes.quality` is a `LuaCustomTable<string, LuaQualityPrototype>` keyed by name.
+        -- Docs: `mise run docs -- open runtime/classes/LuaPrototypes.md#quality`
+        for quality_name, _ in pairs(prototypes.quality) do
+            local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
                 return true
             end
         end
         return false
     end
-    
+
     -- Check if we have space for the result
     local result = get_mine_result(entity)
     if result then
         return utils.inventory_has_space(inventory, result)
     end
-    
+
     -- No result, can always deconstruct
     return true
 end
@@ -107,25 +117,33 @@ end
 ---@param anchor_data table
 ---@return boolean
 function behavior.execute(spider_data, entity, inventory, anchor_data)
-    if not entity or not entity.valid then return false end
-    if not entity.to_be_deconstructed() then return false end
-    if not inventory or not inventory.valid then return false end
-    if entity.type == "deconstructible-tile-proxy" then return false end
-    
+    if not entity or not entity.valid then
+        return false
+    end
+    if not entity.to_be_deconstructed() then
+        return false
+    end
+    if not inventory or not inventory.valid then
+        return false
+    end
+    if entity.type == "deconstructible-tile-proxy" then
+        return false
+    end
+
     -- Handle cliffs specially
     if entity.type == "cliff" then
         -- Find and consume cliff explosives
-        for name, quality in pairs(prototypes.quality) do
-            local item = { name = "cliff-explosives", quality = quality }
+        for quality_name, _ in pairs(prototypes.quality) do
+            local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
-                inventory.remove({ name = "cliff-explosives", count = 1, quality = name })
+                inventory.remove({ name = "cliff-explosives", count = 1, quality = quality_name })
                 entity.destroy({ raise_destroy = true })
                 return true
             end
         end
         return false
     end
-    
+
     -- Handle item-on-ground (picking up items)
     if entity.type == "item-entity" then
         local stack = entity.stack
@@ -142,7 +160,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         end
         return false
     end
-    
+
     -- Regular entity - get contents first
     local entity_contents = {}
     for i = 1, 11 do
@@ -153,7 +171,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             end
         end
     end
-    
+
     -- Handle belts
     local belt_types = {
         ["transport-belt"] = true,
@@ -164,7 +182,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         ["linked-belt"] = true,
         ["lane-splitter"] = true,
     }
-    
+
     if belt_types[entity.type] then
         for i = 1, entity.get_max_transport_line_index() do
             local line = entity.get_transport_line(i)
@@ -175,23 +193,23 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             end
         end
     end
-    
+
     -- Mine the entity
     local result = get_mine_result(entity)
-    
+
     -- Destroy the entity
     entity.destroy({ raise_destroy = true })
-    
+
     -- Insert mined item
     if result then
         inventory.insert(result)
     end
-    
+
     -- Insert contents
     for _, item in pairs(entity_contents) do
         inventory.insert(item)
     end
-    
+
     return true
 end
 

@@ -128,11 +128,7 @@ end
 
 do
     local box = spiderling.selection_box
-    if box
-        and box[1] and box[2]
-        and box[1][1] and box[1][2]
-        and box[2][1] and box[2][2]
-    then
+    if box and box[1] and box[2] and box[1][1] and box[1][2] and box[2][1] and box[2][2] then
         box[1][1] = box[1][1] * 2
         box[1][2] = box[1][2] * 2
         box[2][1] = box[2][1] * 2
