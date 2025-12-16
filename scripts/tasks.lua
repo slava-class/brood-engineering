@@ -8,11 +8,29 @@ local tasks = {}
 
 -- Behaviors list
 local behaviors_list = require("scripts/behaviors/init")
+local behaviors_by_name = nil
 
 --- Get behaviors list
 ---@return table[]
 local function get_behaviors()
     return behaviors_list
+end
+
+---@param name string
+---@return table? behavior
+local function get_behavior_by_name(name)
+    if not name then
+        return nil
+    end
+    if not behaviors_by_name then
+        behaviors_by_name = {}
+        for _, behavior in ipairs(get_behaviors()) do
+            if behavior and behavior.name then
+                behaviors_by_name[behavior.name] = behavior
+            end
+        end
+    end
+    return behaviors_by_name[name]
 end
 
 --- Check if a task is already assigned
@@ -165,15 +183,9 @@ function tasks.execute(spider_data, task, inventory, anchor_data)
 
     -- Resolve behavior from stored name (preferred) or fall back for compatibility
     local behavior
-    local behaviors = get_behaviors()
 
     if task.behavior_name then
-        for _, candidate in ipairs(behaviors) do
-            if candidate.name == task.behavior_name then
-                behavior = candidate
-                break
-            end
-        end
+        behavior = get_behavior_by_name(task.behavior_name)
     elseif task.behavior and task.behavior.name then
         -- Backwards compatibility with older saves that stored the behavior table
         behavior = task.behavior

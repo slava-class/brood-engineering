@@ -1,6 +1,7 @@
 local constants = require("scripts/constants")
 local spider = require("scripts/spider")
 local blueprint_fixtures = require("tests/fixtures/blueprints")
+local blueprint_test_utils = require("tests/blueprint_test_utils")
 
 describe("blueprint build/deconstruct cycle", function()
     local surface
@@ -14,19 +15,9 @@ describe("blueprint build/deconstruct cycle", function()
     local original_idle_timeout_ticks
     local original_no_work_recall_timeout_ticks
 
-    ---@param msg string
-    local function report(msg)
-        if type(log) == "function" then
-            pcall(function()
-                log(msg)
-            end)
-        end
-        pcall(function()
-            if game and game.print then
-                game.print(msg)
-            end
-        end)
-    end
+    local report = blueprint_test_utils.report
+    local collect_blueprints = blueprint_test_utils.collect_blueprints
+    local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
 
     local function track(entity)
         if entity and entity.valid then
@@ -58,101 +49,6 @@ describe("blueprint build/deconstruct cycle", function()
             end
             ::continue::
         end
-    end
-
-    ---@param data string
-    ---@return LuaInventory inv
-    ---@return LuaItemStack stack
-    ---@return boolean imported
-    local function import_any_blueprint_item(data)
-        local inv = game.create_inventory(1)
-        local stack = inv[1]
-
-        ---@param item_name string
-        ---@return boolean ok
-        local function try_with_item(item_name)
-            local ok_set, set_ok = pcall(function()
-                return stack.set_stack({ name = item_name, count = 1 })
-            end)
-            if not ok_set or set_ok == false then
-                return false
-            end
-
-            pcall(function()
-                stack.import_stack(data)
-            end)
-
-            if item_name == "blueprint" and stack.is_blueprint == true and stack.is_blueprint_setup then
-                local ok_setup, is_setup = pcall(function()
-                    return stack.is_blueprint_setup()
-                end)
-                return ok_setup and is_setup == true
-            end
-
-            if item_name == "blueprint-book" and stack.is_blueprint_book == true then
-                local ok_inv, book_inv = pcall(function()
-                    return stack.get_inventory(defines.inventory.item_main)
-                end)
-                if ok_inv and book_inv and book_inv.valid then
-                    for i = 1, #book_inv do
-                        if book_inv[i] and book_inv[i].valid_for_read then
-                            return true
-                        end
-                    end
-                end
-                return false
-            end
-
-            return false
-        end
-
-        if try_with_item("blueprint") then
-            return inv, stack, true
-        end
-        if try_with_item("blueprint-book") then
-            return inv, stack, true
-        end
-        return inv, stack, false
-    end
-
-    ---@param item LuaItemStack
-    ---@param max_depth integer
-    ---@return { stack: LuaItemStack, path: string }[] blueprints
-    local function collect_blueprints(item, max_depth)
-        local result = {}
-
-        local function visit(it, depth, path)
-            if not (it and it.valid_for_read) then
-                return
-            end
-            if depth > max_depth then
-                return
-            end
-
-            if it.is_blueprint == true then
-                result[#result + 1] = { stack = it, path = path or "" }
-                return
-            end
-
-            if it.is_blueprint_book == true then
-                local inv = it.get_inventory(defines.inventory.item_main)
-                if not (inv and inv.valid) then
-                    return
-                end
-                for i = 1, #inv do
-                    local next_path = path and (path .. "/" .. tostring(i)) or tostring(i)
-                    visit(inv[i], depth + 1, next_path)
-                end
-            end
-        end
-
-        local initial_path = ""
-        if item and item.valid_for_read and item.is_blueprint_book == true then
-            initial_path = nil
-        end
-
-        visit(item, 0, initial_path)
-        return result
     end
 
     ---@param inv LuaInventory
@@ -665,8 +561,8 @@ describe("blueprint build/deconstruct cycle", function()
             assert.is_true(fixture ~= nil, "missing brood_test_book fixture")
             assert.is_true(type(fixture.data) == "string" and fixture.data ~= "", "brood_test_book fixture is empty")
 
-            local inv, stack, imported = import_any_blueprint_item(fixture.data)
-            assert.is_true(imported, "failed to import brood_test_book")
+            local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
+            assert.is_true(imported, "failed to import brood_test_book: " .. tostring(err or "unknown"))
 
             local blueprints = collect_blueprints(stack, 3)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_book")
@@ -869,8 +765,8 @@ describe("blueprint build/deconstruct cycle", function()
                 "brood_test_tile_blueprint fixture is empty"
             )
 
-            local inv, stack, imported = import_any_blueprint_item(fixture.data)
-            assert.is_true(imported, "failed to import brood_test_tile_blueprint")
+            local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
+            assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
@@ -1024,8 +920,8 @@ describe("blueprint build/deconstruct cycle", function()
                 "brood_test_tile_blueprint fixture is empty"
             )
 
-            local inv, stack, imported = import_any_blueprint_item(fixture.data)
-            assert.is_true(imported, "failed to import brood_test_tile_blueprint")
+            local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
+            assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
