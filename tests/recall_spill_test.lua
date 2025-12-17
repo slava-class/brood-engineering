@@ -1,4 +1,5 @@
 local spider = require("scripts/spider")
+local test_utils = require("tests/test_utils")
 
 describe("recall spill behavior", function()
     local surface
@@ -11,10 +12,7 @@ describe("recall spill behavior", function()
     local original_global_enabled
 
     local function track(entity)
-        if entity and entity.valid then
-            created[#created + 1] = entity
-        end
-        return entity
+        return test_utils.track(created, entity)
     end
 
     before_each(function()
@@ -24,63 +22,30 @@ describe("recall spill behavior", function()
         created = {}
 
         -- Ensure the chunk is generated; item spilling won't work reliably otherwise.
-        surface.request_to_generate_chunks(base_pos, 1)
-        surface.force_generate_chunk_requests()
+        test_utils.ensure_chunks(surface, base_pos, 1)
 
-        original_global_enabled = storage.global_enabled
-        storage.global_enabled = false
+        original_global_enabled = test_utils.disable_global_enabled()
 
         -- Fully reset mod state for isolation.
-        storage.anchors = {}
-        storage.spider_to_anchor = {}
-        storage.entity_to_spider = {}
-        storage.assigned_tasks = {}
-        storage.assignment_limits = {}
-        storage.pending_tile_deconstruct = {}
+        test_utils.reset_storage()
 
         -- Use a character anchor so we can reliably fill the inventory.
-        anchor_entity = track(surface.create_entity({
-            name = "character",
-            position = base_pos,
+        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
+            surface = surface,
             force = force,
-        }))
-
-        local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
-        inventory.insert({ name = "spiderling", count = 1 })
-
-        anchor_id = "test_anchor_recall_spill_" .. game.tick .. "_" .. math.random(1, 1000000)
-        anchor_data = {
-            type = "test",
-            entity = anchor_entity,
-            player_index = nil,
-            surface_index = surface.index,
-            position = { x = anchor_entity.position.x, y = anchor_entity.position.y },
-            spiders = {},
-        }
-        storage.anchors[anchor_id] = anchor_data
+            position = base_pos,
+            name = "character",
+            inventory_id = defines.inventory.character_main,
+            seed = { { name = "spiderling", count = 1 } },
+            anchor_id_prefix = "test_anchor_recall_spill",
+            track = track,
+        })
     end)
 
     after_each(function()
-        if anchor_data and anchor_data.spiders then
-            local spider_ids = {}
-            for spider_id, _ in pairs(anchor_data.spiders) do
-                spider_ids[#spider_ids + 1] = spider_id
-            end
-            for _, spider_id in ipairs(spider_ids) do
-                spider.recall(spider_id)
-            end
-        end
-
-        if anchor_id and storage.anchors then
-            storage.anchors[anchor_id] = nil
-        end
-        storage.global_enabled = original_global_enabled
-
-        for _, e in ipairs(created) do
-            if e and e.valid then
-                e.destroy()
-            end
-        end
+        test_utils.teardown_anchor(anchor_id, anchor_data)
+        test_utils.restore_global_enabled(original_global_enabled)
+        test_utils.destroy_tracked(created)
     end)
 
     test("recall spills spiderling item when anchor inventory is full", function()

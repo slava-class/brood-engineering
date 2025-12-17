@@ -1,3 +1,5 @@
+local spider = require("scripts/spider")
+
 local M = {}
 
 ---@param msg string
@@ -12,6 +14,152 @@ local function default_report(msg)
             game.print(msg)
         end
     end)
+end
+
+M.report = default_report
+
+function M.reset_storage()
+    storage.anchors = {}
+    storage.spider_to_anchor = {}
+    storage.entity_to_spider = {}
+    storage.assigned_tasks = {}
+    storage.assignment_limits = {}
+    storage.pending_tile_deconstruct = {}
+end
+
+---@return boolean original
+function M.disable_global_enabled()
+    local original = storage.global_enabled
+    storage.global_enabled = false
+    return original
+end
+
+---@param original boolean
+function M.restore_global_enabled(original)
+    storage.global_enabled = original
+end
+
+---@param surface LuaSurface
+---@param position MapPosition
+---@param radius integer
+function M.ensure_chunks(surface, position, radius)
+    if not surface then
+        return
+    end
+    surface.request_to_generate_chunks(position, radius)
+    surface.force_generate_chunk_requests()
+end
+
+---@param created LuaEntity[]
+---@param entity LuaEntity?
+---@return LuaEntity? entity
+function M.track(created, entity)
+    if created and entity and entity.valid then
+        created[#created + 1] = entity
+    end
+    return entity
+end
+
+---@param created LuaEntity[]
+function M.destroy_tracked(created)
+    for _, e in ipairs(created or {}) do
+        if e and e.valid then
+            pcall(function()
+                e.destroy({ raise_destroyed = false })
+            end)
+        end
+    end
+end
+
+---@param entity LuaEntity
+---@return integer? inv_id
+local function default_inventory_id(entity)
+    if not (entity and entity.valid) then
+        return nil
+    end
+    if entity.type == "character" then
+        return defines.inventory.character_main
+    end
+    return defines.inventory.chest
+end
+
+---@class TestUtilsCreateAnchorOpts
+---@field surface LuaSurface
+---@field force LuaForce
+---@field position MapPosition
+---@field name string
+---@field anchor_id_prefix string
+---@field player_index integer?
+---@field inventory_id integer?
+---@field seed { name: string, count: integer, quality?: string }[]?
+---@field track fun(entity: LuaEntity): LuaEntity?
+
+---@param opts TestUtilsCreateAnchorOpts
+---@return string anchor_id
+---@return LuaEntity anchor_entity
+---@return table anchor_data
+---@return LuaInventory? inventory
+function M.create_test_anchor(opts)
+    assert(opts and opts.surface and opts.force and opts.position and opts.name and opts.anchor_id_prefix)
+
+    local entity = opts.surface.create_entity({
+        name = opts.name,
+        position = opts.position,
+        force = opts.force,
+    })
+    assert(entity and entity.valid)
+    if opts.track then
+        entity = opts.track(entity) or entity
+    end
+
+    local anchor_id = ("%s_%d_%d"):format(tostring(opts.anchor_id_prefix), game.tick, math.random(1, 1000000))
+    local anchor_data = {
+        type = "test",
+        entity = entity,
+        player_index = opts.player_index or nil,
+        surface_index = opts.surface.index,
+        position = { x = entity.position.x, y = entity.position.y },
+        spiders = {},
+    }
+    storage.anchors = storage.anchors or {}
+    storage.anchors[anchor_id] = anchor_data
+
+    local inv_id = opts.inventory_id or default_inventory_id(entity)
+    local inventory = inv_id and entity.get_inventory(inv_id) or nil
+    if inventory and inventory.valid and opts.seed then
+        for _, stack_def in ipairs(opts.seed) do
+            inventory.insert(stack_def)
+        end
+    end
+
+    return anchor_id, entity, anchor_data, inventory
+end
+
+---@param anchor_id string?
+---@param anchor_data table?
+function M.teardown_anchor(anchor_id, anchor_data)
+    if anchor_data and anchor_data.spiders then
+        local spider_ids = {}
+        for spider_id, _ in pairs(anchor_data.spiders) do
+            spider_ids[#spider_ids + 1] = spider_id
+        end
+        for _, spider_id in ipairs(spider_ids) do
+            pcall(function()
+                spider.recall(spider_id)
+            end)
+        end
+    end
+
+    if anchor_id and storage.anchors then
+        storage.anchors[anchor_id] = nil
+    end
+end
+
+---@param anchor_id string?
+function M.remove_anchor(anchor_id)
+    if anchor_id and storage.anchors then
+        storage.anchors[anchor_id] = nil
+    end
 end
 
 ---@param surface LuaSurface

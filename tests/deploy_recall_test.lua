@@ -1,6 +1,5 @@
 local spider = require("scripts/spider")
-local anchor = require("scripts/anchor")
-local constants = require("scripts/constants")
+local test_utils = require("tests/test_utils")
 
 describe("deploy and recall", function()
     local surface
@@ -13,10 +12,7 @@ describe("deploy and recall", function()
     local original_global_enabled
 
     local function track(entity)
-        if entity and entity.valid then
-            created[#created + 1] = entity
-        end
-        return entity
+        return test_utils.track(created, entity)
     end
 
     before_each(function()
@@ -25,45 +21,25 @@ describe("deploy and recall", function()
         base_pos = { x = 3000 + math.random(0, 50), y = math.random(-20, 20) }
         created = {}
 
-        original_global_enabled = storage.global_enabled
-        storage.global_enabled = false
+        original_global_enabled = test_utils.disable_global_enabled()
+        test_utils.reset_storage()
 
-        storage.anchors = storage.anchors or {}
-        storage.spider_to_anchor = storage.spider_to_anchor or {}
-        storage.entity_to_spider = storage.entity_to_spider or {}
-        storage.assigned_tasks = storage.assigned_tasks or {}
-
-        anchor_entity = track(surface.create_entity({
-            name = "wooden-chest",
-            position = base_pos,
+        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
+            surface = surface,
             force = force,
-        }))
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
-        inventory.insert({ name = "spiderling", count = 1 })
-
-        anchor_id = "test_anchor_deploy_" .. game.tick .. "_" .. math.random(1, 1000000)
-        anchor_data = {
-            type = "test",
-            entity = anchor_entity,
-            player_index = nil,
-            surface_index = surface.index,
-            position = { x = anchor_entity.position.x, y = anchor_entity.position.y },
-            spiders = {},
-        }
-        storage.anchors[anchor_id] = anchor_data
+            position = base_pos,
+            name = "wooden-chest",
+            inventory_id = defines.inventory.chest,
+            seed = { { name = "spiderling", count = 1 } },
+            anchor_id_prefix = "test_anchor_deploy",
+            track = track,
+        })
     end)
 
     after_each(function()
-        if anchor_id and storage.anchors then
-            storage.anchors[anchor_id] = nil
-        end
-        storage.global_enabled = original_global_enabled
-
-        for _, e in ipairs(created) do
-            if e and e.valid then
-                e.destroy()
-            end
-        end
+        test_utils.teardown_anchor(anchor_id, anchor_data)
+        test_utils.restore_global_enabled(original_global_enabled)
+        test_utils.destroy_tracked(created)
     end)
 
     test("deploy consumes spiderling and registers spider", function()
@@ -82,11 +58,6 @@ describe("deploy and recall", function()
         assert.is_true(deployed_data.entity and deployed_data.entity.valid)
         assert.are_equal("spiderling", deployed_data.entity.name)
         assert.are_equal(anchor_entity.unit_number, deployed_data.entity.follow_target.unit_number)
-
-        -- Cleanup: recall so we don't leave orphaned spiders between tests/runs.
-        after_test(function()
-            spider.recall(spider_id)
-        end)
     end)
 
     test("recall returns spiderling and cleans tracking", function()

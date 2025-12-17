@@ -1,5 +1,6 @@
 local spider = require("scripts/spider")
 local utils = require("scripts/utils")
+local test_utils = require("tests/test_utils")
 
 describe("spider state transitions", function()
     local surface
@@ -8,6 +9,7 @@ describe("spider state transitions", function()
     local created = {}
     local anchor_id
     local anchor_entity
+    local anchor_data
     local spider_id
     local spider_entity
     local task_target
@@ -15,10 +17,7 @@ describe("spider state transitions", function()
     local original_global_enabled
 
     local function track(entity)
-        if entity and entity.valid then
-            created[#created + 1] = entity
-        end
-        return entity
+        return test_utils.track(created, entity)
     end
 
     local function setup_anchor_and_spider()
@@ -26,27 +25,16 @@ describe("spider state transitions", function()
         force = game.forces.player
         base_pos = { x = 2000 + math.random(0, 50), y = math.random(-20, 20) }
 
-        storage.anchors = storage.anchors or {}
-        storage.spider_to_anchor = storage.spider_to_anchor or {}
-        storage.entity_to_spider = storage.entity_to_spider or {}
-        storage.assigned_tasks = {}
-
-        anchor_entity = track(surface.create_entity({
-            name = "wooden-chest",
-            position = { x = base_pos.x, y = base_pos.y },
+        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
+            surface = surface,
             force = force,
-        }))
-
-        anchor_id = "test_anchor_" .. game.tick .. "_" .. math.random(1, 1000000)
-        local anchor_data = {
-            type = "test",
-            entity = anchor_entity,
-            player_index = nil,
-            surface_index = surface.index,
-            position = { x = anchor_entity.position.x, y = anchor_entity.position.y },
-            spiders = {},
-        }
-        storage.anchors[anchor_id] = anchor_data
+            position = { x = base_pos.x, y = base_pos.y },
+            name = "wooden-chest",
+            inventory_id = defines.inventory.chest,
+            seed = {},
+            anchor_id_prefix = "test_anchor",
+            track = track,
+        })
 
         spider_entity = track(surface.create_entity({
             name = "spiderling",
@@ -85,25 +73,18 @@ describe("spider state transitions", function()
 
     before_each(function()
         created = {}
-        original_global_enabled = storage.global_enabled
-        storage.global_enabled = false
+        original_global_enabled = test_utils.disable_global_enabled()
+        test_utils.reset_storage()
         setup_anchor_and_spider()
     end)
 
     after_each(function()
-        if anchor_id and storage.anchors then
-            storage.anchors[anchor_id] = nil
-        end
+        test_utils.remove_anchor(anchor_id)
         if spider_id and storage.spider_to_anchor then
             storage.spider_to_anchor[spider_id] = nil
         end
-        storage.global_enabled = original_global_enabled
-
-        for _, e in ipairs(created) do
-            if e and e.valid then
-                e.destroy()
-            end
-        end
+        test_utils.restore_global_enabled(original_global_enabled)
+        test_utils.destroy_tracked(created)
     end)
 
     test("assign_task sets moving_to_task and tracks assignment", function()

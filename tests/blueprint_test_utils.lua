@@ -1,19 +1,7 @@
 local M = {}
+local test_utils = require("tests/test_utils")
 
---- Log to both the Factorio log file and in-game chat (so it shows up in FactorioTest UI output).
----@param msg string
-function M.report(msg)
-    if type(log) == "function" then
-        pcall(function()
-            log(msg)
-        end)
-    end
-    pcall(function()
-        if game and game.print then
-            game.print(msg)
-        end
-    end)
-end
+M.report = test_utils.report
 
 ---@param item LuaItemStack
 ---@param max_depth integer
