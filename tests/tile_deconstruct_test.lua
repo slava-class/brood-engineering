@@ -102,22 +102,23 @@ describe("tile deconstruction", function()
         local spider_id = spider.deploy(anchor_id)
         assert.is_not_nil(spider_id)
 
-        async(60 * 20)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            local current_tile = surface.get_tile(tile_pos)
-            if current_tile and current_tile.valid and current_tile.name ~= "stone-path" then
-                local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
-                if inventory.get_item_count("stone-brick") >= 1 then
-                    assert.are_equal("grass-1", current_tile.name)
-                    done()
-                    return false
+        test_utils.wait_until({
+            timeout_ticks = 60 * 20,
+            description = "single tile deconstruct",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                local current_tile = surface.get_tile(tile_pos)
+                if current_tile and current_tile.valid and current_tile.name ~= "stone-path" then
+                    local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+                    if inventory.get_item_count("stone-brick") >= 1 then
+                        assert.are_equal("grass-1", current_tile.name)
+                        return true
+                    end
                 end
-            end
 
-            return true
-        end)
+                return false
+            end,
+        })
     end)
 
     test("auto-deploy mines multiple deconstruct-marked tiles without double-counting proxies", function()
@@ -173,27 +174,28 @@ describe("tile deconstruction", function()
         end
         assert.are_equal(#tile_positions, deployed)
 
-        async(60 * 20)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            for _, tile_pos in ipairs(tile_positions) do
-                local current_tile = surface.get_tile(tile_pos)
-                if current_tile and current_tile.valid and current_tile.name == "stone-path" then
-                    return true
+        test_utils.wait_until({
+            timeout_ticks = 60 * 20,
+            description = "multi tile deconstruct",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                for _, tile_pos in ipairs(tile_positions) do
+                    local current_tile = surface.get_tile(tile_pos)
+                    if current_tile and current_tile.valid and current_tile.name == "stone-path" then
+                        return false
+                    end
                 end
-            end
 
-            local final_inventory = anchor_entity.get_inventory(defines.inventory.character_main)
-            if final_inventory.get_item_count("stone-brick") < #tile_positions then
+                local final_inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+                if final_inventory.get_item_count("stone-brick") < #tile_positions then
+                    return false
+                end
+
+                for _, tile_pos in ipairs(tile_positions) do
+                    assert.are_equal("grass-1", surface.get_tile(tile_pos).name)
+                end
                 return true
-            end
-
-            for _, tile_pos in ipairs(tile_positions) do
-                assert.are_equal("grass-1", surface.get_tile(tile_pos).name)
-            end
-            done()
-            return false
-        end)
+            end,
+        })
     end)
 end)

@@ -140,25 +140,26 @@ describe("blueprint-like placement scenarios", function()
         local spider_id = spider.deploy(anchor_id)
         assert.is_not_nil(spider_id)
 
-        async(60 * 25)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            -- The primary purpose is "no crash"; also assert progress: blocker removed and ghost built.
-            if not tree.valid then
-                local built = surface.find_entities_filtered({
-                    position = target_pos,
-                    name = "stone-furnace",
-                    force = force,
-                })
-                if built and #built > 0 then
-                    done()
-                    return false
+        test_utils.wait_until({
+            timeout_ticks = 60 * 25,
+            description = "blocked ghost scenario completes",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                -- The primary purpose is "no crash"; also assert progress: blocker removed and ghost built.
+                if not tree.valid then
+                    local built = surface.find_entities_filtered({
+                        position = target_pos,
+                        name = "stone-furnace",
+                        force = force,
+                    })
+                    if built and #built > 0 then
+                        return true
+                    end
                 end
-            end
 
-            return true
-        end)
+                return false
+            end,
+        })
     end)
 
     for _, fixture in ipairs(blueprint_fixtures or {}) do
@@ -298,7 +299,7 @@ describe("blueprint-like placement scenarios", function()
 
                 -- Ensure the task scan can handle whatever ghosts were created.
                 local ok_loop, loop_err = pcall(function()
-                    remote.call("brood-engineering-test", "run_main_loop")
+                    test_utils.run_main_loop()
                 end)
                 assert.is_true(
                     ok_loop,

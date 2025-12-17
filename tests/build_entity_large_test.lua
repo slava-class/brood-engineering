@@ -104,19 +104,19 @@ describe("build large entity ghosts", function()
 
         test_utils.run_main_loop()
 
-        async(60 * 30)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            local furnace = surface.find_entity("stone-furnace", ghost_pos)
-            if furnace and furnace.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "stone-furnace", quality = "normal" }))
-                done()
+        test_utils.wait_until({
+            timeout_ticks = 60 * 30,
+            description = "stone furnace built",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                local furnace = surface.find_entity("stone-furnace", ghost_pos)
+                if furnace and furnace.valid then
+                    assert.are_equal(0, inventory.get_item_count({ name = "stone-furnace", quality = "normal" }))
+                    return true
+                end
                 return false
-            end
-
-            return true
-        end)
+            end,
+        })
     end)
 
     test("builds an assembling machine ghost (3x3)", function()
@@ -138,19 +138,19 @@ describe("build large entity ghosts", function()
 
         test_utils.run_main_loop()
 
-        async(60 * 30)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            local machine = surface.find_entity("assembling-machine-2", ghost_pos)
-            if machine and machine.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "assembling-machine-2", quality = "normal" }))
-                done()
+        test_utils.wait_until({
+            timeout_ticks = 60 * 30,
+            description = "assembling machine built",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                local machine = surface.find_entity("assembling-machine-2", ghost_pos)
+                if machine and machine.valid then
+                    assert.are_equal(0, inventory.get_item_count({ name = "assembling-machine-2", quality = "normal" }))
+                    return true
+                end
                 return false
-            end
-
-            return true
-        end)
+            end,
+        })
     end)
 
     test("builds an oil refinery ghost (5x5)", function()
@@ -172,19 +172,19 @@ describe("build large entity ghosts", function()
 
         test_utils.run_main_loop()
 
-        async(60 * 40)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            local refinery = surface.find_entity("oil-refinery", ghost_pos)
-            if refinery and refinery.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "oil-refinery", quality = "normal" }))
-                done()
+        test_utils.wait_until({
+            timeout_ticks = 60 * 40,
+            description = "oil refinery built",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                local refinery = surface.find_entity("oil-refinery", ghost_pos)
+                if refinery and refinery.valid then
+                    assert.are_equal(0, inventory.get_item_count({ name = "oil-refinery", quality = "normal" }))
+                    return true
+                end
                 return false
-            end
-
-            return true
-        end)
+            end,
+        })
     end)
 
     test("builds a rocket silo ghost (9x9)", function()
@@ -206,18 +206,18 @@ describe("build large entity ghosts", function()
 
         test_utils.run_main_loop()
 
-        async(60 * 40)
-        on_tick(function()
-            test_utils.run_main_loop_periodic(constants.main_loop_interval)
-
-            local silo = surface.find_entity("rocket-silo", ghost_pos)
-            if silo and silo.valid then
-                assert.are_equal(0, inventory.get_item_count({ name = "rocket-silo", quality = "normal" }))
-                done()
+        test_utils.wait_until({
+            timeout_ticks = 60 * 40,
+            description = "rocket silo built",
+            main_loop_interval = constants.main_loop_interval,
+            condition = function()
+                local silo = surface.find_entity("rocket-silo", ghost_pos)
+                if silo and silo.valid then
+                    assert.are_equal(0, inventory.get_item_count({ name = "rocket-silo", quality = "normal" }))
+                    return true
+                end
                 return false
-            end
-
-            return true
-        end)
+            end,
+        })
     end)
 end)

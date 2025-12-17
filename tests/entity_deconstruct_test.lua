@@ -1,5 +1,6 @@
 local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 local spider = require("scripts/spider")
+local test_utils = require("tests/test_utils")
 
 describe("entity deconstruction", function()
     local surface
@@ -19,24 +20,7 @@ describe("entity deconstruction", function()
     end
 
     local function clear_area(position, radius)
-        local tiles = {}
-        for y = position.y - radius, position.y + radius do
-            for x = position.x - radius, position.x + radius do
-                tiles[#tiles + 1] = { name = "grass-1", position = { x = x, y = y } }
-            end
-        end
-        surface.set_tiles(tiles, true)
-
-        local area = { { position.x - radius, position.y - radius }, { position.x + radius, position.y + radius } }
-        for _, entity in ipairs(surface.find_entities_filtered({ area = area })) do
-            if entity and entity.valid then
-                if anchor_entity and entity == anchor_entity then
-                    goto continue
-                end
-                entity.destroy({ raise_destroy = false })
-            end
-            ::continue::
-        end
+        test_utils.clear_area(surface, position, radius, { anchor_entity = anchor_entity, skip_spiders = true })
     end
 
     before_each(function()
