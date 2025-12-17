@@ -1,5 +1,6 @@
 local constants = require("scripts/constants")
 local spider = require("scripts/spider")
+local test_utils = require("tests/test_utils")
 
 describe("idle recall after finishing work", function()
     local surface
@@ -197,9 +198,7 @@ describe("idle recall after finishing work", function()
 
         on_tick(function()
             local tick = game.tick
-            if (tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
+            test_utils.run_main_loop_periodic(constants.main_loop_interval)
 
             if phase == "waiting_assigned" then
                 local spider_data = anchor_data.spiders[spider_id]

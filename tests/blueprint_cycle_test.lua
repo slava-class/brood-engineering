@@ -2,6 +2,7 @@ local constants = require("scripts/constants")
 local spider = require("scripts/spider")
 local blueprint_fixtures = require("tests/fixtures/blueprints")
 local blueprint_test_utils = require("tests/blueprint_test_utils")
+local test_utils = require("tests/test_utils")
 
 describe("blueprint build/deconstruct cycle", function()
     local surface
@@ -27,28 +28,10 @@ describe("blueprint build/deconstruct cycle", function()
     end
 
     local function clear_area(position, radius)
-        local tiles = {}
-        for y = position.y - radius, position.y + radius do
-            for x = position.x - radius, position.x + radius do
-                tiles[#tiles + 1] = { name = "grass-1", position = { x = x, y = y } }
-            end
-        end
-        surface.set_tiles(tiles, true)
-
-        local anchor_unit_number = anchor_entity and anchor_entity.valid and anchor_entity.unit_number or nil
-        local area = { { position.x - radius, position.y - radius }, { position.x + radius, position.y + radius } }
-        for _, entity in ipairs(surface.find_entities_filtered({ area = area })) do
-            if entity and entity.valid then
-                if anchor_unit_number and entity.unit_number and entity.unit_number == anchor_unit_number then
-                    goto continue
-                end
-                if entity.type == "spider-vehicle" then
-                    goto continue
-                end
-                entity.destroy({ raise_destroyed = false })
-            end
-            ::continue::
-        end
+        test_utils.clear_area(surface, position, radius, {
+            anchor_entity = anchor_entity,
+            skip_spiders = true,
+        })
     end
 
     ---@param inv LuaInventory
@@ -645,9 +628,7 @@ describe("blueprint build/deconstruct cycle", function()
             phase = "building"
 
             on_tick(function()
-                if (game.tick % constants.main_loop_interval) == 0 then
-                    remote.call("brood-engineering-test", "run_main_loop")
-                end
+                test_utils.run_main_loop_periodic(constants.main_loop_interval)
                 if (game.tick % 600) == 0 then
                     local entity_ghosts =
                         surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })
@@ -817,9 +798,7 @@ describe("blueprint build/deconstruct cycle", function()
             end
 
             on_tick(function()
-                if (game.tick % constants.main_loop_interval) == 0 then
-                    remote.call("brood-engineering-test", "run_main_loop")
-                end
+                test_utils.run_main_loop_periodic(constants.main_loop_interval)
                 if (game.tick % 600) == 0 then
                     local entity_ghosts =
                         surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })
@@ -1009,9 +988,7 @@ describe("blueprint build/deconstruct cycle", function()
             end
 
             on_tick(function()
-                if (game.tick % constants.main_loop_interval) == 0 then
-                    remote.call("brood-engineering-test", "run_main_loop")
-                end
+                test_utils.run_main_loop_periodic(constants.main_loop_interval)
                 if (game.tick % 600) == 0 then
                     local entity_ghosts =
                         surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })

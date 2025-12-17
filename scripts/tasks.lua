@@ -16,6 +16,22 @@ local function get_behaviors()
     return behaviors_list
 end
 
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param force LuaForce[]
+---@param cb fun(behavior: table, targets: table): boolean? stop
+local function for_each_behavior_targets(surface, area, force, cb)
+    for _, behavior in ipairs(get_behaviors()) do
+        local targets = behavior.find_tasks(surface, area, force)
+        if targets and #targets > 0 then
+            if cb(behavior, targets) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 ---@param name string
 ---@return table? behavior
 local function get_behavior_by_name(name)
@@ -47,13 +63,14 @@ end
 ---@param inventory LuaInventory
 ---@return table? task { id, entity/tile, behavior_name }
 function tasks.find_best(surface, area, force, inventory)
-    local behaviors = get_behaviors()
-
     -- Try each behavior in priority order
-    for _, behavior in ipairs(behaviors) do
-        local targets = behavior.find_tasks(surface, area, force)
+    local best_task = nil
+    for_each_behavior_targets(surface, area, force, function(behavior, targets)
+        if not (targets and #targets > 0) then
+            return false
+        end
 
-        if targets and #targets > 0 then
+        do
             -- Shuffle targets for fairness
             for i = #targets, 2, -1 do
                 local j = math.random(i)
@@ -67,20 +84,23 @@ function tasks.find_best(surface, area, force, inventory)
                 if not tasks.is_assigned(task_id) then
                     -- Check if we can execute
                     if behavior.can_execute(target, inventory) then
-                        return {
+                        best_task = {
                             id = task_id,
                             entity = target.object_name == "LuaEntity" and target or nil,
                             tile = target.object_name == "LuaTile" and target or nil,
                             -- Store only a serialisable identifier, not the behavior table itself
                             behavior_name = behavior.name,
                         }
+                        return true
                     end
                 end
             end
         end
-    end
 
-    return nil
+        return false
+    end)
+
+    return best_task
 end
 
 --- Find all tasks in an area (for batch processing)
@@ -90,31 +110,27 @@ end
 ---@param inventory LuaInventory
 ---@return table[] tasks
 function tasks.find_all(surface, area, force, inventory)
-    local behaviors = get_behaviors()
     local result = {}
 
-    for _, behavior in ipairs(behaviors) do
-        local targets = behavior.find_tasks(surface, area, force)
+    for_each_behavior_targets(surface, area, force, function(behavior, targets)
+        for _, target in ipairs(targets) do
+            local task_id = behavior.get_task_id(target)
 
-        if targets then
-            for _, target in ipairs(targets) do
-                local task_id = behavior.get_task_id(target)
-
-                if not tasks.is_assigned(task_id) then
-                    if behavior.can_execute(target, inventory) then
-                        result[#result + 1] = {
-                            id = task_id,
-                            entity = target.object_name == "LuaEntity" and target or nil,
-                            tile = target.object_name == "LuaTile" and target or nil,
-                            -- Store only a serialisable identifier, not the behavior table itself
-                            behavior_name = behavior.name,
-                            priority = behavior.priority,
-                        }
-                    end
+            if not tasks.is_assigned(task_id) then
+                if behavior.can_execute(target, inventory) then
+                    result[#result + 1] = {
+                        id = task_id,
+                        entity = target.object_name == "LuaEntity" and target or nil,
+                        tile = target.object_name == "LuaTile" and target or nil,
+                        -- Store only a serialisable identifier, not the behavior table itself
+                        behavior_name = behavior.name,
+                        priority = behavior.priority,
+                    }
                 end
             end
         end
-    end
+        return false
+    end)
 
     -- Sort by priority
     table.sort(result, function(a, b)
@@ -130,16 +146,9 @@ end
 ---@param force LuaForce[]
 ---@return boolean
 function tasks.exist_in_area(surface, area, force)
-    local behaviors = get_behaviors()
-
-    for _, behavior in ipairs(behaviors) do
-        local targets = behavior.find_tasks(surface, area, force)
-        if targets and #targets > 0 then
-            return true
-        end
-    end
-
-    return false
+    return for_each_behavior_targets(surface, area, force, function(_, targets)
+        return targets and #targets > 0
+    end)
 end
 
 --- Check if any executable tasks exist in an area (i.e., can_execute passes)
@@ -149,20 +158,14 @@ end
 ---@param inventory LuaInventory
 ---@return boolean
 function tasks.exist_executable_in_area(surface, area, force, inventory)
-    local behaviors = get_behaviors()
-
-    for _, behavior in ipairs(behaviors) do
-        local targets = behavior.find_tasks(surface, area, force)
-        if targets and #targets > 0 then
-            for _, target in ipairs(targets) do
-                if behavior.can_execute(target, inventory) then
-                    return true
-                end
+    return for_each_behavior_targets(surface, area, force, function(behavior, targets)
+        for _, target in ipairs(targets) do
+            if behavior.can_execute(target, inventory) then
+                return true
             end
         end
-    end
-
-    return false
+        return false
+    end)
 end
 
 --- Execute a task

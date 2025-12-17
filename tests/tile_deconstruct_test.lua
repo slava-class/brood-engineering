@@ -3,6 +3,7 @@ local anchor = require("scripts/anchor")
 local tasks = require("scripts/tasks")
 local constants = require("scripts/constants")
 local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
+local test_utils = require("tests/test_utils")
 
 describe("tile deconstruction", function()
     local surface
@@ -103,9 +104,7 @@ describe("tile deconstruction", function()
 
         async(60 * 20)
         on_tick(function()
-            if (game.tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
+            test_utils.run_main_loop_periodic(constants.main_loop_interval)
 
             local current_tile = surface.get_tile(tile_pos)
             if current_tile and current_tile.valid and current_tile.name ~= "stone-path" then
@@ -166,7 +165,7 @@ describe("tile deconstruction", function()
             assert.are_equal("deconstruct_tile", task.behavior_name)
         end
 
-        remote.call("brood-engineering-test", "run_main_loop")
+        test_utils.run_main_loop()
 
         local deployed = 0
         for _ in pairs(anchor_data.spiders) do
@@ -176,9 +175,7 @@ describe("tile deconstruction", function()
 
         async(60 * 20)
         on_tick(function()
-            if (game.tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
+            test_utils.run_main_loop_periodic(constants.main_loop_interval)
 
             for _, tile_pos in ipairs(tile_positions) do
                 local current_tile = surface.get_tile(tile_pos)

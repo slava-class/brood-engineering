@@ -172,6 +172,67 @@ local function get_mine_products(entity)
     return mineable and mineable.products or nil
 end
 
+---@param product PrototypeProduct
+---@return integer count
+local function product_count_for_can_insert(product)
+    local count = product and product.amount or nil
+    if not count then
+        count = product and (product.amount_max or product.amount_min) or nil
+    end
+    if not count or count < 1 then
+        count = 1
+    end
+    return count
+end
+
+---@param product PrototypeProduct
+---@return integer count
+local function product_count_for_insert(product)
+    local count = product and product.amount or nil
+    if not count then
+        count = product and product.amount_min or nil
+    end
+    if not count or count < 1 then
+        count = product and product.amount_max or nil
+    end
+    if not count or count < 1 then
+        count = 1
+    end
+    return count
+end
+
+---@param entity LuaEntity
+---@return { name: string, count: integer }[]?
+local function mineable_item_products_for_can_insert(entity)
+    local products = get_mine_products(entity)
+    if not products then
+        return nil
+    end
+    local result = {}
+    for _, product in pairs(products) do
+        if product and product.type == "item" and product.name then
+            result[#result + 1] = { name = product.name, count = product_count_for_can_insert(product) }
+        end
+    end
+    return result
+end
+
+---@param entity LuaEntity
+---@return { name: string, count: integer }[]?
+local function mineable_item_products_for_insert(entity)
+    local products = get_mine_products(entity)
+    if not products then
+        return nil
+    end
+    local result = {}
+    for _, product in pairs(products) do
+        if product and product.type == "item" and product.name then
+            result[#result + 1] = { name = product.name, count = product_count_for_insert(product) }
+        end
+    end
+    return result
+end
+
 ---@param inventory LuaInventory
 ---@param name string
 ---@param count number
@@ -220,13 +281,10 @@ end
 ---@param spill_surface LuaSurface?
 ---@param spill_position MapPosition?
 local function insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)
-    local products = get_mine_products(entity)
-    if products then
-        for _, product in pairs(products) do
-            if product.type == "item" then
-                local count = product.amount or product.amount_min or product.amount_max or 1
-                insert_name_count(inventory, product.name, count, quality_name, spill_surface, spill_position)
-            end
+    local products = mineable_item_products_for_insert(entity)
+    if products and #products > 0 then
+        for _, product in ipairs(products) do
+            insert_name_count(inventory, product.name, product.count, quality_name, spill_surface, spill_position)
         end
         return
     end
@@ -355,20 +413,12 @@ function behavior.can_execute(entity, inventory)
 
     -- Check space for mined products (best-effort; mining may still spill extras).
     local quality_name = normalize_quality_name(entity.quality)
-    local products = get_mine_products(entity)
-    if products then
-        for _, product in pairs(products) do
-            if product.type == "item" then
-                -- Some prototypes use `amount_min = 0` (random drops). `LuaInventory.can_insert` requires `count > 0`.
-                -- Use a conservative "worst-case" count when available.
-                local count = product.amount or product.amount_max or product.amount_min or 1
-                if not count or count < 1 then
-                    count = 1
-                end
-                local stack = { name = product.name, count = count, quality = quality_name }
-                if not inventory.can_insert(stack) then
-                    return false
-                end
+    local products = mineable_item_products_for_can_insert(entity)
+    if products and #products > 0 then
+        for _, product in ipairs(products) do
+            local stack = { name = product.name, count = product.count, quality = quality_name }
+            if not inventory.can_insert(stack) then
+                return false
             end
         end
         return true

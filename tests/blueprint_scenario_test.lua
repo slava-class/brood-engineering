@@ -3,6 +3,7 @@ local anchor = require("scripts/anchor")
 local spider = require("scripts/spider")
 local blueprint_fixtures = require("tests/fixtures/blueprints")
 local blueprint_test_utils = require("tests/blueprint_test_utils")
+local test_utils = require("tests/test_utils")
 
 describe("blueprint-like placement scenarios", function()
     local surface
@@ -24,24 +25,10 @@ describe("blueprint-like placement scenarios", function()
     end
 
     local function clear_area(position, radius)
-        local tiles = {}
-        for y = position.y - radius, position.y + radius do
-            for x = position.x - radius, position.x + radius do
-                tiles[#tiles + 1] = { name = "grass-1", position = { x = x, y = y } }
-            end
-        end
-        surface.set_tiles(tiles, true)
-
-        local area = { { position.x - radius, position.y - radius }, { position.x + radius, position.y + radius } }
-        for _, entity in ipairs(surface.find_entities_filtered({ area = area })) do
-            if entity and entity.valid then
-                if anchor_entity and entity == anchor_entity then
-                    goto continue
-                end
-                entity.destroy({ raise_destroyed = false })
-            end
-            ::continue::
-        end
+        test_utils.clear_area(surface, position, radius, {
+            anchor_entity = anchor_entity,
+            skip_spiders = true,
+        })
     end
 
     local collect_blueprints = blueprint_test_utils.collect_blueprints
@@ -155,9 +142,7 @@ describe("blueprint-like placement scenarios", function()
 
         async(60 * 25)
         on_tick(function()
-            if (game.tick % constants.main_loop_interval) == 0 then
-                remote.call("brood-engineering-test", "run_main_loop")
-            end
+            test_utils.run_main_loop_periodic(constants.main_loop_interval)
 
             -- The primary purpose is "no crash"; also assert progress: blocker removed and ghost built.
             if not tree.valid then
