@@ -31,6 +31,19 @@ Use the `mise run docs` command liberally during development (and while writing 
 It wraps the local `factorio-llm-docs` corpus (search/get/open) and defaults to a checkout at `~/workspace/factorio-llm-docs`.
 If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-llm-docs`.
 
+## Factorio API Usage (MUST)
+
+When writing gameplay code or tests, you **MUST** look up the Factorio API in the offline docs before using **any** Factorio runtime/prototype API. Do not guess signatures, return values, or calling conventions.
+
+- **MUST** use `mise run docs -- search "<symbol>"` and then `mise run docs -- open "<hit>"` (or `mise run docs -- open "runtime:method:LuaX.y"`) to confirm:
+  - The symbol exists in the target Factorio version.
+  - Parameter names/order and whether it uses a named-params table calling convention.
+  - Return values (including multi-return) and nilability.
+  - Any notes/constraints that affect correctness.
+- **MUST** treat docs as the source of truth over intuition; Factorio APIs frequently differ across versions.
+- **MUST** assume some APIs require the single “named parameter table” form even if you expect positional arguments.
+- **Recommended:** create small wrapper helpers in our own code for tricky API interactions. Once a wrapper is implemented + validated, you can use that wrapper freely, but you must still look up Factorio APIs when adding/changing wrapper behavior.
+
 ### Usage
 
 - List available Factorio versions:
@@ -86,3 +99,12 @@ Quick docs lookups:
 - Test files live under `tests/` as Lua modules.
 - Register new modules in the FactorioTest init list in `control.lua` (under the `script.active_mods["factorio-test"]` gate).
 - Any helper interfaces for tests should be added only inside that gate so they never ship into normal gameplay.
+- **MUST** check our prototypes (especially `data.lua`) before assuming entity inventories/slots exist; many entities intentionally have inventories disabled (e.g., spiderlings may not have a usable trunk).
+
+### Test patterns (Preferred)
+
+- **No runtime `require()`**: FactorioTest disallows it (“outside of control.lua parsing”); keep `require(...)` at file top-level.
+- Use `tests/test_utils.lua` wrappers: `describe_anchor_test`, `describe_surface_test`, `describe_remote_test`.
+- Use `ctx.defer(...)` for cleanup (restore constants, destroy temporary inventories/entities, etc).
+- Anchor suites: prefer `test_utils.anchor_opts.chest/character({ x_base=..., radii=..., spiderlings=... })`; `anchor_id_prefix` is auto-derived from suite name.
+- Prefer `ctx.anchor_inventory` (already resolved) vs calling `test_utils.anchor_inventory(...)` repeatedly; use `ctx.assert_no_ghosts(...)` helpers where relevant.

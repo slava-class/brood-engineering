@@ -3,15 +3,10 @@ local utils = require("scripts/utils")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("spider state transitions", function()
-    return {
-        base_pos_factory = function()
-            return { x = 2000 + math.random(0, 50), y = math.random(-20, 20) }
-        end,
-        anchor_name = "wooden-chest",
-        anchor_inventory_id = defines.inventory.chest,
+    return test_utils.anchor_opts.chest({
+        x_base = 2000,
         anchor_seed = {},
-        anchor_id_prefix = "test_anchor",
-    }
+    })
 end, function(ctx)
     local spider_id
     local spider_entity

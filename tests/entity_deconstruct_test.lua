@@ -3,16 +3,11 @@ local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("entity deconstruction", function()
-    return {
-        base_pos = test_utils.random_base_pos(9500),
-        ensure_chunks_radius = 1,
-        clean_radius = 60,
-        clear_radius = 16,
-        anchor_name = "wooden-chest",
-        anchor_inventory_id = defines.inventory.chest,
+    return test_utils.anchor_opts.chest({
+        x_base = 9500,
+        radii = "deconstruct",
         anchor_seed = {},
-        anchor_id_prefix = "test_anchor_entity_decon",
-    }
+    })
 end, function(ctx)
     local function clear_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, { anchor_entity = ctx.anchor_entity, skip_spiders = true })

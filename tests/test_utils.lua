@@ -63,6 +63,132 @@ function M.random_base_pos(x_base, x_jitter, y_min, y_max)
     return { x = x_base + math.random(0, x_jitter), y = math.random(y_min, y_max) }
 end
 
+---@param base table
+---@param overrides table|nil
+---@return table
+local function merge_opts(base, overrides)
+    if overrides then
+        for k, v in pairs(overrides) do
+            if v ~= nil then
+                base[k] = v
+            end
+        end
+    end
+    return base
+end
+
+---@param name string
+---@return string
+function M.default_anchor_id_prefix(name)
+    assert(type(name) == "string" and name ~= "", "default_anchor_id_prefix requires name")
+    local slug = name:lower()
+    slug = slug:gsub("[^a-z0-9]+", "_")
+    slug = slug:gsub("^_+", ""):gsub("_+$", "")
+    slug = slug:gsub("__+", "_")
+    if slug == "" then
+        slug = "anchor"
+    end
+    if #slug > 60 then
+        slug = slug:sub(1, 60)
+        slug = slug:gsub("_+$", "")
+    end
+    return "test_anchor_" .. slug
+end
+
+---@class TestUtilsAnchorOptsArgs
+---@field x_base number
+---@field x_jitter integer?
+---@field y_min integer?
+---@field y_max integer?
+---@field base_pos MapPosition?
+---@field radii string|{ ensure_chunks_radius?: integer, clean_radius?: integer, clear_radius?: integer }?
+---@field ensure_chunks_radius integer?
+---@field clean_radius integer?
+---@field clear_radius integer?
+---@field anchor_seed { name: string, count: integer, quality?: string }[]?
+---@field spiderlings integer?
+---@field anchor_id_prefix string?
+
+M.anchor_radii = {
+    deploy = { clean_radius = 40, clear_radius = 12 },
+    small = { clean_radius = 40, clear_radius = 16 },
+    medium = { clean_radius = 60, clear_radius = 20 },
+    deconstruct = { ensure_chunks_radius = 1, clean_radius = 60, clear_radius = 16 },
+    idle = { ensure_chunks_radius = 2, clean_radius = 120 },
+    blueprint = { ensure_chunks_radius = 2, clean_radius = 80, clear_radius = 25 },
+    large = { ensure_chunks_radius = 2, clean_radius = 120, clear_radius = 25 },
+}
+
+M.anchor_opts = {}
+
+---@param args TestUtilsAnchorOptsArgs
+---@param overrides TestUtilsSetupAnchorTestOpts|nil
+---@return TestUtilsSetupAnchorTestOpts
+function M.anchor_opts.chest(args, overrides)
+    assert(type(args) == "table", "anchor_opts.chest requires args table")
+    assert(type(args.x_base) == "number", "anchor_opts.chest requires x_base")
+
+    local seed = args.anchor_seed
+    if seed == nil and type(args.spiderlings) == "number" and args.spiderlings > 0 then
+        seed = { { name = "spiderling", count = math.floor(args.spiderlings) } }
+    end
+
+    local opts = {
+        base_pos = args.base_pos or M.random_base_pos(args.x_base, args.x_jitter, args.y_min, args.y_max),
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = seed,
+        anchor_id_prefix = args.anchor_id_prefix,
+    }
+    local radii = args.radii
+    if type(radii) == "string" then
+        radii = M.anchor_radii[radii]
+    end
+    if type(radii) == "table" then
+        merge_opts(opts, radii)
+    end
+    merge_opts(opts, {
+        ensure_chunks_radius = args.ensure_chunks_radius,
+        clean_radius = args.clean_radius,
+        clear_radius = args.clear_radius,
+    })
+    return merge_opts(opts, overrides)
+end
+
+---@param args TestUtilsAnchorOptsArgs
+---@param overrides TestUtilsSetupAnchorTestOpts|nil
+---@return TestUtilsSetupAnchorTestOpts
+function M.anchor_opts.character(args, overrides)
+    assert(type(args) == "table", "anchor_opts.character requires args table")
+    assert(type(args.x_base) == "number", "anchor_opts.character requires x_base")
+
+    local seed = args.anchor_seed
+    if seed == nil and type(args.spiderlings) == "number" and args.spiderlings > 0 then
+        seed = { { name = "spiderling", count = math.floor(args.spiderlings) } }
+    end
+
+    local opts = {
+        base_pos = args.base_pos or M.random_base_pos(args.x_base, args.x_jitter, args.y_min, args.y_max),
+        anchor_name = "character",
+        anchor_inventory_id = defines.inventory.character_main,
+        anchor_seed = seed,
+        anchor_id_prefix = args.anchor_id_prefix,
+    }
+    local radii = args.radii
+    if type(radii) == "string" then
+        radii = M.anchor_radii[radii]
+    end
+    if type(radii) == "table" then
+        merge_opts(opts, radii)
+    end
+    merge_opts(opts, {
+        ensure_chunks_radius = args.ensure_chunks_radius,
+        clean_radius = args.clean_radius,
+        clear_radius = args.clear_radius,
+    })
+    return merge_opts(opts, overrides)
+end
+
 ---@param created LuaEntity[]
 ---@param entity LuaEntity?
 ---@return LuaEntity? entity
@@ -395,6 +521,12 @@ function M.describe_anchor_test(name, opts, suite)
             local setup_opts = opts
             if type(opts) == "function" then
                 setup_opts = opts()
+            end
+            if type(setup_opts) ~= "table" then
+                setup_opts = {}
+            end
+            if type(setup_opts.anchor_id_prefix) ~= "string" or setup_opts.anchor_id_prefix == "" then
+                setup_opts.anchor_id_prefix = M.default_anchor_id_prefix(name)
             end
             real_ctx = M.setup_anchor_test(setup_opts)
         end)

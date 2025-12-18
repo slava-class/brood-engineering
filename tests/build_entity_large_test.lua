@@ -4,15 +4,11 @@ local constants = require("scripts/constants")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("build large entity ghosts", function()
-    return {
-        base_pos = test_utils.random_base_pos(7000),
-        clean_radius = 60,
-        clear_radius = 20,
-        anchor_name = "wooden-chest",
-        anchor_inventory_id = defines.inventory.chest,
-        anchor_seed = { { name = "spiderling", count = 10 } },
-        anchor_id_prefix = "test_anchor_build_large",
-    }
+    return test_utils.anchor_opts.chest({
+        x_base = 7000,
+        radii = "medium",
+        spiderlings = 10,
+    })
 end, function(ctx)
     local function clear_build_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, { anchor_entity = ctx.anchor_entity, skip_spiders = true })

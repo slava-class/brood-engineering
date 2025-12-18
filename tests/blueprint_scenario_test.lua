@@ -10,19 +10,14 @@ local collect_blueprints = blueprint_test_utils.collect_blueprints
 local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
 
 test_utils.describe_anchor_test("blueprint-like placement scenarios", function()
-    return {
-        base_pos = test_utils.random_base_pos(7200),
-        ensure_chunks_radius = 2,
-        clean_radius = 80,
-        clear_radius = 25,
-        anchor_name = "character",
-        anchor_inventory_id = defines.inventory.character_main,
+    return test_utils.anchor_opts.character({
+        x_base = 7200,
+        radii = "blueprint",
         anchor_seed = {
             { name = "spiderling", count = 1 },
             { name = "stone-furnace", count = 1, quality = "normal" },
         },
-        anchor_id_prefix = "test_anchor_blueprint",
-    }
+    })
 end, function(ctx)
     local function clear_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, {

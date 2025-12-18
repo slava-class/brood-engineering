@@ -3,15 +3,11 @@ local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("idle recall after finishing work", function()
-    return {
-        base_pos = test_utils.random_base_pos(4000),
-        ensure_chunks_radius = 2,
-        clean_radius = 120,
-        anchor_name = "wooden-chest",
-        anchor_inventory_id = defines.inventory.chest,
-        anchor_seed = { { name = "spiderling", count = 1 } },
-        anchor_id_prefix = "test_anchor_idle",
-    }
+    return test_utils.anchor_opts.chest({
+        x_base = 4000,
+        radii = "idle",
+        spiderlings = 1,
+    })
 end, function(ctx)
     local task_entity
 

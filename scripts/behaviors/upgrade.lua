@@ -9,6 +9,18 @@ local behavior = {
     priority = constants.priorities.upgrade,
 }
 
+---@param quality LuaQualityPrototype|string|nil
+---@return string|nil
+local function quality_name(quality)
+    if type(quality) == "table" then
+        return quality.name
+    end
+    if type(quality) == "string" then
+        return quality
+    end
+    return nil
+end
+
 --- Find entities marked for upgrade
 ---@param surface LuaSurface
 ---@param area BoundingBox
@@ -38,7 +50,7 @@ function behavior.can_execute(entity, inventory)
     end
 
     -- Get upgrade target
-    local target = entity.get_upgrade_target()
+    local target, target_quality = entity.get_upgrade_target()
     if not target then
         return false
     end
@@ -50,8 +62,8 @@ function behavior.can_execute(entity, inventory)
     end
 
     local item_name = items[1].name
-    local quality = entity.get_upgrade_quality() or entity.quality
-    local item_with_quality = { name = item_name, quality = quality }
+    local desired_quality = quality_name(target_quality) or quality_name(entity.quality) or "normal"
+    local item_with_quality = { name = item_name, quality = desired_quality }
 
     -- Check if we have the item
     if not utils.inventory_has_item(inventory, item_with_quality) then
@@ -91,12 +103,13 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         return false
     end
 
-    local target = entity.get_upgrade_target()
+    local target, target_quality = entity.get_upgrade_target()
     if not target then
         return false
     end
 
-    local target_quality = entity.get_upgrade_quality() or entity.quality
+    local desired_quality = quality_name(target_quality) or quality_name(entity.quality) or "normal"
+    local target_quality_proto = type(target_quality) == "table" and target_quality or entity.quality
 
     -- Get item needed
     local items = target.items_to_place_this
@@ -106,7 +119,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
 
     local item_name = items[1].name
     local item_count = items[1].count or 1
-    local item_with_quality = { name = item_name, quality = target_quality }
+    local item_with_quality = { name = item_name, quality = desired_quality }
 
     if not utils.inventory_has_item(inventory, item_with_quality) then
         return false
@@ -133,7 +146,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
         position = position,
         direction = direction,
         force = force,
-        quality = target_quality,
+        quality = target_quality_proto,
         fast_replace = true,
         player = nil,
         spill = false,
@@ -143,7 +156,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
 
     if new_entity then
         -- Remove new item from inventory
-        inventory.remove({ name = item_name, count = item_count, quality = target_quality.name })
+        inventory.remove({ name = item_name, count = item_count, quality = desired_quality })
 
         -- Return old item to inventory
         if old_item_name then

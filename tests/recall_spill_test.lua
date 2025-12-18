@@ -2,16 +2,12 @@ local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("recall spill behavior", function()
-    return {
-        base_pos = test_utils.random_base_pos(9000),
+    return test_utils.anchor_opts.character({
+        x_base = 9000,
         ensure_chunks_radius = 1,
-        clean_radius = 40,
-        clear_radius = 16,
-        anchor_name = "character",
-        anchor_inventory_id = defines.inventory.character_main,
-        anchor_seed = { { name = "spiderling", count = 1 } },
-        anchor_id_prefix = "test_anchor_recall_spill",
-    }
+        radii = "small",
+        spiderlings = 1,
+    })
 end, function(ctx)
     test("recall spills spiderling item when anchor inventory is full", function()
         local inventory = ctx.anchor_inventory

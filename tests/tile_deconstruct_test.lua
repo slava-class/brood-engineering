@@ -6,16 +6,11 @@ local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("tile deconstruction", function()
-    return {
-        base_pos = test_utils.random_base_pos(6000),
-        clean_radius = 40,
-        clear_radius = 16,
-        -- Use a character anchor so `mine_tile` is available (matches in-game behavior).
-        anchor_name = "character",
-        anchor_inventory_id = defines.inventory.character_main,
-        anchor_seed = { { name = "spiderling", count = 1 } },
-        anchor_id_prefix = "test_anchor_tile",
-    }
+    return test_utils.anchor_opts.character({
+        x_base = 6000,
+        radii = "small",
+        spiderlings = 1,
+    })
 end, function(ctx)
     test("removes deconstruct-marked stone-path tile", function()
         local tile_pos = ctx.pos({ x = 2, y = 0 })

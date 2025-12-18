@@ -10,18 +10,11 @@ local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
 local progress_line = blueprint_test_utils.progress_line
 
 test_utils.describe_anchor_test("blueprint build/deconstruct cycle", function()
-    return {
-        base_pos_factory = function()
-            return test_utils.random_base_pos(7600)
-        end,
-        ensure_chunks_radius = 2,
-        clean_radius = 120,
-        clear_radius = 25,
-        anchor_name = "character",
-        anchor_inventory_id = defines.inventory.character_main,
+    return test_utils.anchor_opts.character({
+        x_base = 7600,
+        radii = "large",
         anchor_seed = {},
-        anchor_id_prefix = "test_anchor_blueprint_cycle",
-    }
+    })
 end, function(ctx)
     local surface
     local force
