@@ -2,21 +2,20 @@ local constants = require("scripts/constants")
 local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
-describe("idle recall after finishing work", function()
-    local ctx
+test_utils.describe_anchor_test("idle recall after finishing work", function()
+    return {
+        base_pos = test_utils.random_base_pos(4000),
+        ensure_chunks_radius = 2,
+        clean_radius = 120,
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = { { name = "spiderling", count = 1 } },
+        anchor_id_prefix = "test_anchor_idle",
+    }
+end, function(ctx)
     local task_entity
 
     before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 4000 + math.random(0, 50), y = math.random(-20, 20) },
-            ensure_chunks_radius = 2,
-            clean_radius = 120,
-            anchor_name = "wooden-chest",
-            anchor_inventory_id = defines.inventory.chest,
-            anchor_seed = { { name = "spiderling", count = 1 } },
-            anchor_id_prefix = "test_anchor_idle",
-        })
-
         -- Ensure the immediate area around the anchor/task is clear and traversable
         -- so spider movement doesn't depend on map generation randomness.
         test_utils.clear_area(ctx.surface, ctx.base_pos, 25, {
@@ -24,7 +23,7 @@ describe("idle recall after finishing work", function()
             skip_spiders = true,
         })
 
-        local task_pos = { x = ctx.base_pos.x + 2, y = ctx.base_pos.y }
+        local task_pos = ctx.pos({ x = 2, y = 0 })
         test_utils.clear_area(ctx.surface, task_pos, 15, {
             anchor_entity = ctx.anchor_entity,
             skip_spiders = true,
@@ -39,12 +38,9 @@ describe("idle recall after finishing work", function()
         assert.is_true(task_entity.to_be_deconstructed())
     end)
 
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
-
     test("deploys, completes nearby task, then recalls after ~2s of no work", function()
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
 
         -- Keep the scheduled main loop disabled and drive it manually on the
         -- same cadence as on_nth_tick for determinism.
@@ -99,10 +95,7 @@ describe("idle recall after finishing work", function()
                     end
 
                     if spider_data.status == "deployed_idle" and spider_data.entity and spider_data.entity.valid then
-                        local ft = spider_data.entity.follow_target
-                        if ft and ft.valid then
-                            assert.are_equal(ctx.anchor_entity.unit_number, ft.unit_number)
-                        end
+                        test_utils.assert_spider_following_anchor(ctx, spider_id)
                     end
 
                     if

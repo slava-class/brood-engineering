@@ -4,30 +4,38 @@ local blueprint_fixtures = require("tests/fixtures/blueprints")
 local blueprint_test_utils = require("tests/blueprint_test_utils")
 local test_utils = require("tests/test_utils")
 
-describe("blueprint build/deconstruct cycle", function()
-    local ctx
+local report = blueprint_test_utils.report
+local collect_blueprints = blueprint_test_utils.collect_blueprints
+local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
+local progress_line = blueprint_test_utils.progress_line
+
+test_utils.describe_anchor_test("blueprint build/deconstruct cycle", function()
+    return {
+        base_pos_factory = function()
+            return test_utils.random_base_pos(7600)
+        end,
+        ensure_chunks_radius = 2,
+        clean_radius = 120,
+        clear_radius = 25,
+        anchor_name = "character",
+        anchor_inventory_id = defines.inventory.character_main,
+        anchor_seed = {},
+        anchor_id_prefix = "test_anchor_blueprint_cycle",
+    }
+end, function(ctx)
     local surface
     local force
     local base_pos
-    local created = {}
     local anchor_id
     local anchor_entity
     local anchor_data
 
-    local report = blueprint_test_utils.report
-    local collect_blueprints = blueprint_test_utils.collect_blueprints
-    local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
-    local progress_line = blueprint_test_utils.progress_line
-
     local function track(entity)
-        return test_utils.track(created, entity)
+        return ctx.track(entity)
     end
 
     local function clear_area(position, radius)
-        test_utils.clear_area(surface, position, radius, {
-            anchor_entity = anchor_entity,
-            skip_spiders = true,
-        })
+        ctx.clear_area(position, radius)
     end
 
     ---@param spider_count integer
@@ -35,7 +43,8 @@ describe("blueprint build/deconstruct cycle", function()
     ---@return string[] spider_ids
     ---@return MapPosition build_origin
     local function setup_anchor_inventory_and_spiders(spider_count)
-        local anchor_inv = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
+        local anchor_inv = ctx.anchor_inventory
+        assert(anchor_inv and anchor_inv.valid)
         anchor_inv.clear()
 
         local spider_ids = test_utils.deploy_spiders(anchor_id, {
@@ -422,23 +431,9 @@ describe("blueprint build/deconstruct cycle", function()
     end
 
     before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos_factory = function()
-                return { x = 7600 + math.random(0, 50), y = math.random(-20, 20) }
-            end,
-            ensure_chunks_radius = 2,
-            clean_radius = 120,
-            clear_radius = 25,
-            anchor_name = "character",
-            anchor_inventory_id = defines.inventory.character_main,
-            anchor_seed = {},
-            anchor_id_prefix = "test_anchor_blueprint_cycle",
-        })
-
         surface = ctx.surface
         force = ctx.force
         base_pos = ctx.base_pos
-        created = ctx.created
         anchor_id = ctx.anchor_id
         anchor_entity = ctx.anchor_entity
         anchor_data = ctx.anchor_data
@@ -454,12 +449,9 @@ describe("blueprint build/deconstruct cycle", function()
             constants.no_work_recall_timeout_ticks = original_no_work_recall_timeout_ticks
         end)
 
-        test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main).clear()
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-        ctx = nil
+        local anchor_inv = ctx.anchor_inventory
+        assert(anchor_inv and anchor_inv.valid)
+        anchor_inv.clear()
     end)
 
     test(

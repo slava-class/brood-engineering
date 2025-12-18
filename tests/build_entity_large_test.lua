@@ -3,33 +3,26 @@ local anchor = require("scripts/anchor")
 local constants = require("scripts/constants")
 local test_utils = require("tests/test_utils")
 
-describe("build large entity ghosts", function()
-    local ctx
-
+test_utils.describe_anchor_test("build large entity ghosts", function()
+    return {
+        base_pos = test_utils.random_base_pos(7000),
+        clean_radius = 60,
+        clear_radius = 20,
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = { { name = "spiderling", count = 10 } },
+        anchor_id_prefix = "test_anchor_build_large",
+    }
+end, function(ctx)
     local function clear_build_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, { anchor_entity = ctx.anchor_entity, skip_spiders = true })
     end
 
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 7000 + math.random(0, 50), y = math.random(-20, 20) },
-            clean_radius = 60,
-            clear_radius = 20,
-            anchor_name = "wooden-chest",
-            anchor_inventory_id = defines.inventory.chest,
-            anchor_seed = { { name = "spiderling", count = 10 } },
-            anchor_id_prefix = "test_anchor_build_large",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
-
     test("builds a stone furnace ghost (2x2)", function()
-        local ghost_pos = { x = ctx.base_pos.x + 10, y = ctx.base_pos.y }
+        local ghost_pos = ctx.pos({ x = 10, y = 0 })
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "stone-furnace", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 8)
@@ -58,9 +51,10 @@ describe("build large entity ghosts", function()
     end)
 
     test("builds an assembling machine ghost (3x3)", function()
-        local ghost_pos = { x = ctx.base_pos.x + 14, y = ctx.base_pos.y }
+        local ghost_pos = ctx.pos({ x = 14, y = 0 })
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "assembling-machine-2", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 10)
@@ -89,9 +83,10 @@ describe("build large entity ghosts", function()
     end)
 
     test("builds an oil refinery ghost (5x5)", function()
-        local ghost_pos = { x = ctx.base_pos.x + 18, y = ctx.base_pos.y }
+        local ghost_pos = ctx.pos({ x = 18, y = 0 })
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "oil-refinery", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 12)
@@ -120,9 +115,10 @@ describe("build large entity ghosts", function()
     end)
 
     test("builds a rocket silo ghost (9x9)", function()
-        local ghost_pos = { x = ctx.base_pos.x + 32, y = ctx.base_pos.y }
+        local ghost_pos = ctx.pos({ x = 32, y = 0 })
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "rocket-silo", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 15)

@@ -1,15 +1,14 @@
 local constants = require("scripts/constants")
+local test_utils = require("tests/test_utils")
 
-describe("assignment limiter", function()
-    local original_max
-
+test_utils.describe_remote_test("assignment limiter", function(ctx)
     before_each(function()
-        original_max = constants.max_assignments_per_tick
-        remote.call("brood-engineering-test", "reset_assignment_limits")
-    end)
+        local original_max = constants.max_assignments_per_tick
+        ctx.defer(function()
+            constants.max_assignments_per_tick = original_max
+        end)
 
-    after_each(function()
-        constants.max_assignments_per_tick = original_max
+        remote.call("brood-engineering-test", "reset_assignment_limits")
     end)
 
     test("caps assignments per anchor per tick", function()

@@ -2,29 +2,21 @@ local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
-describe("entity deconstruction", function()
-    local ctx
-
+test_utils.describe_anchor_test("entity deconstruction", function()
+    return {
+        base_pos = test_utils.random_base_pos(9500),
+        ensure_chunks_radius = 1,
+        clean_radius = 60,
+        clear_radius = 16,
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = {},
+        anchor_id_prefix = "test_anchor_entity_decon",
+    }
+end, function(ctx)
     local function clear_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, { anchor_entity = ctx.anchor_entity, skip_spiders = true })
     end
-
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 9500 + math.random(0, 50), y = math.random(-20, 20) },
-            ensure_chunks_radius = 1,
-            clean_radius = 60,
-            clear_radius = 16,
-            anchor_name = "wooden-chest",
-            anchor_inventory_id = defines.inventory.chest,
-            anchor_seed = {},
-            anchor_id_prefix = "test_anchor_entity_decon",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
 
     test("mines an entity and transfers its inventories to the anchor inventory", function()
         local target_offset = { x = 12, y = 0 }
@@ -48,7 +40,8 @@ describe("entity deconstruction", function()
 
         furnace.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         assert.is_true(deconstruct_entity.can_execute(furnace, inventory))
         assert.is_true(deconstruct_entity.execute({}, furnace, inventory, ctx.anchor_data))
         assert.is_true(not furnace.valid)
@@ -82,7 +75,8 @@ describe("entity deconstruction", function()
 
         belt.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
         assert.is_true(deconstruct_entity.execute({}, belt, inventory, ctx.anchor_data))
         assert.is_true(not belt.valid)
@@ -182,7 +176,8 @@ describe("entity deconstruction", function()
 
         belt.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
         assert.is_true(deconstruct_entity.execute({}, belt, inventory, ctx.anchor_data))
         assert.is_true(not belt.valid)

@@ -50,6 +50,19 @@ function M.ensure_chunks(surface, position, radius)
     surface.force_generate_chunk_requests()
 end
 
+---@param x_base number
+---@param x_jitter integer?
+---@param y_min integer?
+---@param y_max integer?
+---@return MapPosition
+function M.random_base_pos(x_base, x_jitter, y_min, y_max)
+    assert(type(x_base) == "number", "random_base_pos requires x_base number")
+    x_jitter = x_jitter == nil and 50 or x_jitter
+    y_min = y_min == nil and -20 or y_min
+    y_max = y_max == nil and 20 or y_max
+    return { x = x_base + math.random(0, x_jitter), y = math.random(y_min, y_max) }
+end
+
 ---@param created LuaEntity[]
 ---@param entity LuaEntity?
 ---@return LuaEntity? entity
@@ -134,6 +147,265 @@ end
 function M.assert_no_ghosts(surface, area, force)
     M.assert_no_entity_ghosts(surface, area, force)
     M.assert_no_tile_ghosts(surface, area, force)
+end
+
+---@param name string
+---@param get_real_ctx fun(): table|nil
+---@return table
+local function make_ctx_proxy(name, get_real_ctx)
+    return setmetatable({}, {
+        __index = function(_, k)
+            local real_ctx = get_real_ctx()
+            if not real_ctx then
+                error(("ctx accessed before setup in %s"):format(tostring(name)))
+            end
+            return real_ctx[k]
+        end,
+        __newindex = function(_, k, v)
+            local real_ctx = get_real_ctx()
+            if not real_ctx then
+                error(("ctx mutated before setup in %s"):format(tostring(name)))
+            end
+            real_ctx[k] = v
+        end,
+        __pairs = function()
+            return pairs(get_real_ctx() or {})
+        end,
+    })
+end
+
+---@param cleanup fun()[]|nil
+local function run_cleanup(cleanup)
+    if not cleanup then
+        return
+    end
+    for i = #cleanup, 1, -1 do
+        pcall(cleanup[i])
+    end
+end
+
+---@class TestUtilsSurfaceTestCtx
+---@field surface LuaSurface
+---@field force LuaForce
+---@field base_pos MapPosition
+---@field created LuaEntity[]
+---@field cleanup fun()[]
+---@field defer fun(fn: fun()): fun()
+---@field track fun(entity: LuaEntity): LuaEntity?
+---@field pos fun(offset: MapPosition): MapPosition
+---@field spawn fun(spec: table): LuaEntity
+---@field spawn_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, direction?: defines.direction, expires?: boolean, force?: LuaForce|string }): LuaEntity
+---@field spawn_tile_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string }): LuaEntity
+---@field spawn_item_request_proxy fun(spec: { target: LuaEntity, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string, modules?: BlueprintInsertPlan[]?, insert_plan?: BlueprintInsertPlan[]?, removal_plan?: BlueprintInsertPlan[]? }): LuaEntity
+---@field assert_no_entity_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
+---@field assert_no_tile_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
+---@field assert_no_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
+
+---@param name string
+---@param opts { base_pos?: MapPosition, base_pos_factory?: fun(): MapPosition, surface?: LuaSurface, force?: LuaForce }|fun(): { base_pos?: MapPosition, base_pos_factory?: fun(): MapPosition, surface?: LuaSurface, force?: LuaForce }|nil
+---@param suite fun(ctx: TestUtilsSurfaceTestCtx)
+function M.describe_surface_test(name, opts, suite)
+    assert(type(name) == "string" and name ~= "", "describe_surface_test requires name")
+    assert(type(suite) == "function", "describe_surface_test requires suite(ctx) function")
+
+    describe(name, function()
+        local real_ctx = nil
+
+        ---@type TestUtilsSurfaceTestCtx
+        local ctx = make_ctx_proxy(name, function()
+            return real_ctx
+        end)
+
+        before_each(function()
+            local resolved = opts
+            if type(opts) == "function" then
+                resolved = opts()
+            end
+            resolved = resolved or {}
+
+            local surface = resolved.surface or game.surfaces[1]
+            local force = resolved.force or game.forces.player
+
+            local base_pos = resolved.base_pos
+            if not base_pos and resolved.base_pos_factory then
+                base_pos = resolved.base_pos_factory()
+            end
+            base_pos = base_pos or { x = 1000 + math.random(0, 50), y = math.random(-20, 20) }
+
+            local created = {}
+            local cleanup = {}
+            real_ctx = {
+                surface = surface,
+                force = force,
+                base_pos = base_pos,
+                created = created,
+                cleanup = cleanup,
+                defer = function(fn)
+                    assert(type(fn) == "function", "ctx.defer expects a function")
+                    cleanup[#cleanup + 1] = fn
+                    return fn
+                end,
+                track = function(entity)
+                    return M.track(created, entity)
+                end,
+                pos = function(offset)
+                    return { x = base_pos.x + (offset.x or 0), y = base_pos.y + (offset.y or 0) }
+                end,
+                spawn = function(spec)
+                    assert(type(spec) == "table", "ctx.spawn expects a spec table")
+                    local create_def = {}
+                    for k, v in pairs(spec) do
+                        create_def[k] = v
+                    end
+                    create_def.force = create_def.force or force
+                    create_def.surface = nil
+                    if create_def.position == nil and type(spec.offset) == "table" then
+                        create_def.position = {
+                            x = base_pos.x + (spec.offset.x or 0),
+                            y = base_pos.y + (spec.offset.y or 0),
+                        }
+                    end
+                    create_def.offset = nil
+
+                    local entity = surface.create_entity(create_def)
+                    assert(entity and entity.valid, "ctx.spawn failed to create entity")
+                    return M.track(created, entity) or entity
+                end,
+                spawn_ghost = function(spec)
+                    assert(type(spec) == "table", "ctx.spawn_ghost expects a spec table")
+                    assert(
+                        type(spec.inner_name) == "string" and spec.inner_name ~= "",
+                        "ctx.spawn_ghost requires inner_name"
+                    )
+                    return real_ctx.spawn({
+                        name = "entity-ghost",
+                        inner_name = spec.inner_name,
+                        position = spec.position,
+                        offset = spec.offset,
+                        direction = spec.direction or defines.direction.north,
+                        expires = spec.expires == nil and false or spec.expires,
+                        force = spec.force,
+                    })
+                end,
+                spawn_tile_ghost = function(spec)
+                    assert(type(spec) == "table", "ctx.spawn_tile_ghost expects a spec table")
+                    assert(
+                        type(spec.inner_name) == "string" and spec.inner_name ~= "",
+                        "ctx.spawn_tile_ghost requires inner_name"
+                    )
+                    return real_ctx.spawn({
+                        name = "tile-ghost",
+                        inner_name = spec.inner_name,
+                        position = spec.position,
+                        offset = spec.offset,
+                        force = spec.force,
+                    })
+                end,
+                spawn_item_request_proxy = function(spec)
+                    assert(type(spec) == "table", "ctx.spawn_item_request_proxy expects a spec table")
+                    assert(spec.target and spec.target.valid, "ctx.spawn_item_request_proxy requires a valid target")
+                    return real_ctx.spawn({
+                        name = "item-request-proxy",
+                        position = spec.position or (spec.target and spec.target.position),
+                        offset = spec.offset,
+                        force = spec.force,
+                        target = spec.target,
+                        modules = spec.modules,
+                        insert_plan = spec.insert_plan,
+                        removal_plan = spec.removal_plan,
+                    })
+                end,
+                assert_no_entity_ghosts = function(area, force_override)
+                    return M.assert_no_entity_ghosts(surface, area, force_override or force)
+                end,
+                assert_no_tile_ghosts = function(area, force_override)
+                    return M.assert_no_tile_ghosts(surface, area, force_override or force)
+                end,
+                assert_no_ghosts = function(area, force_override)
+                    return M.assert_no_ghosts(surface, area, force_override or force)
+                end,
+            }
+        end)
+
+        after_each(function()
+            run_cleanup(real_ctx and real_ctx.cleanup or nil)
+            M.destroy_tracked(real_ctx and real_ctx.created or {})
+            real_ctx = nil
+        end)
+
+        suite(ctx)
+    end)
+end
+
+---@class TestUtilsRemoteTestCtx
+---@field cleanup fun()[]
+---@field defer fun(fn: fun()): fun()
+
+---@param name string
+---@param suite fun(ctx: TestUtilsRemoteTestCtx)
+function M.describe_remote_test(name, suite)
+    assert(type(name) == "string" and name ~= "", "describe_remote_test requires name")
+    assert(type(suite) == "function", "describe_remote_test requires suite(ctx) function")
+
+    describe(name, function()
+        local real_ctx = nil
+
+        ---@type TestUtilsRemoteTestCtx
+        local ctx = make_ctx_proxy(name, function()
+            return real_ctx
+        end)
+
+        before_each(function()
+            local cleanup = {}
+            real_ctx = {
+                cleanup = cleanup,
+                defer = function(fn)
+                    assert(type(fn) == "function", "ctx.defer expects a function")
+                    cleanup[#cleanup + 1] = fn
+                    return fn
+                end,
+            }
+        end)
+
+        after_each(function()
+            run_cleanup(real_ctx and real_ctx.cleanup or nil)
+            real_ctx = nil
+        end)
+
+        suite(ctx)
+    end)
+end
+
+---@param name string
+---@param opts TestUtilsSetupAnchorTestOpts|fun(): TestUtilsSetupAnchorTestOpts
+---@param suite fun(ctx: TestUtilsAnchorTestCtx)
+function M.describe_anchor_test(name, opts, suite)
+    assert(type(name) == "string" and name ~= "", "describe_anchor_test requires name")
+    assert(type(suite) == "function", "describe_anchor_test requires suite(ctx) function")
+
+    describe(name, function()
+        local real_ctx = nil
+
+        ---@type TestUtilsAnchorTestCtx
+        local ctx = make_ctx_proxy(name, function()
+            return real_ctx
+        end)
+
+        before_each(function()
+            local setup_opts = opts
+            if type(opts) == "function" then
+                setup_opts = opts()
+            end
+            real_ctx = M.setup_anchor_test(setup_opts)
+        end)
+
+        after_each(function()
+            M.teardown_anchor_test(real_ctx)
+            real_ctx = nil
+        end)
+
+        suite(ctx)
+    end)
 end
 
 ---@param created LuaEntity[]
@@ -253,6 +525,62 @@ function M.deploy_spiders(anchor_id, opts)
     return spider_ids
 end
 
+---@param inv LuaInventory
+---@param stacks { name: string, quality?: string }[]
+---@return table<string, integer>
+function M.snapshot_inventory_counts(inv, stacks)
+    assert(inv and inv.valid, "snapshot_inventory_counts requires a valid inventory")
+    local snap = {}
+    for _, stack in ipairs(stacks or {}) do
+        local quality = stack.quality or "normal"
+        local key = ("%s\x1f%s"):format(tostring(stack.name), tostring(quality))
+        snap[key] = inv.get_item_count({ name = stack.name, quality = quality })
+    end
+    return snap
+end
+
+---@param inv LuaInventory
+---@param snap table<string, integer>
+function M.assert_inventory_counts(inv, snap)
+    assert(inv and inv.valid, "assert_inventory_counts requires a valid inventory")
+    for key, expected in pairs(snap or {}) do
+        local name, quality = key:match("^(.-)\x1f(.*)$")
+        local got = inv.get_item_count({ name = name, quality = quality })
+        assert.are_equal(
+            expected,
+            got,
+            ("inventory mismatch for %s quality=%s"):format(tostring(name), tostring(quality))
+        )
+    end
+end
+
+---@param inv LuaInventory
+---@param fn fun()
+---@param expected_delta { name: string, quality?: string, delta: integer }[]
+function M.assert_inventory_delta(inv, fn, expected_delta)
+    local stacks = {}
+    for _, d in ipairs(expected_delta or {}) do
+        stacks[#stacks + 1] = { name = d.name, quality = d.quality }
+    end
+    local before = M.snapshot_inventory_counts(inv, stacks)
+    fn()
+    for _, d in ipairs(expected_delta or {}) do
+        local quality = d.quality or "normal"
+        local key = ("%s\x1f%s"):format(tostring(d.name), tostring(quality))
+        local after = inv.get_item_count({ name = d.name, quality = quality })
+        local expected = (before[key] or 0) + (d.delta or 0)
+        assert.are_equal(
+            expected,
+            after,
+            ("inventory delta mismatch for %s quality=%s delta=%d"):format(
+                tostring(d.name),
+                tostring(quality),
+                d.delta or 0
+            )
+        )
+    end
+end
+
 ---@param entity LuaEntity
 ---@param inventory_id integer
 ---@return LuaInventory
@@ -291,9 +619,17 @@ end
 ---@field spawn_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, direction?: defines.direction, expires?: boolean, force?: LuaForce|string }): LuaEntity
 ---@field spawn_tile_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string }): LuaEntity
 ---@field spawn_item_request_proxy fun(spec: { target: LuaEntity, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string, modules?: BlueprintInsertPlan[]?, insert_plan?: BlueprintInsertPlan[]?, removal_plan?: BlueprintInsertPlan[]? }): LuaEntity
+---@field clear_area fun(position: MapPosition, radius: integer, opts?: { skip_spiders?: boolean }): nil
+---@field clear_offset fun(offset: MapPosition, radius: integer, opts?: { skip_spiders?: boolean }): nil
+---@field sanitize_area fun(area: BoundingBox, opts?: TestUtilsSanitizeAreaOpts): nil
+---@field assert_no_entity_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
+---@field assert_no_tile_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
+---@field assert_no_ghosts fun(area: BoundingBox, force?: LuaForce|string): nil
 ---@field anchor_id string
 ---@field anchor_entity LuaEntity
 ---@field anchor_data table
+---@field anchor_inventory LuaInventory?
+---@field anchor_inventory_id integer?
 ---@field original_global_enabled boolean
 
 ---@param opts TestUtilsSetupAnchorTestOpts
@@ -331,6 +667,8 @@ function M.setup_anchor_test(opts)
         anchor_id = nil,
         anchor_entity = nil,
         anchor_data = nil,
+        anchor_inventory = nil,
+        anchor_inventory_id = opts.anchor_inventory_id,
         original_global_enabled = false,
     }
     ctx.track = function(entity)
@@ -405,6 +743,41 @@ function M.setup_anchor_test(opts)
             removal_plan = spec.removal_plan,
         })
     end
+    ctx.clear_area = function(position, radius, opts)
+        local merged = {
+            anchor_entity = ctx.anchor_entity,
+            skip_spiders = true,
+        }
+        if opts and opts.skip_spiders == false then
+            merged.skip_spiders = false
+        end
+        M.clear_area(ctx.surface, position, radius, merged)
+    end
+    ctx.clear_offset = function(offset, radius, opts)
+        ctx.clear_area(ctx.pos(offset), radius, opts)
+    end
+    ctx.sanitize_area = function(area, opts)
+        local merged = {
+            force = ctx.force,
+            anchor_entity = ctx.anchor_entity,
+            skip_spiders = true,
+        }
+        if opts then
+            for k, v in pairs(opts) do
+                merged[k] = v
+            end
+        end
+        M.sanitize_area(ctx.surface, area, merged)
+    end
+    ctx.assert_no_entity_ghosts = function(area, force_override)
+        return M.assert_no_entity_ghosts(ctx.surface, area, force_override or ctx.force)
+    end
+    ctx.assert_no_tile_ghosts = function(area, force_override)
+        return M.assert_no_tile_ghosts(ctx.surface, area, force_override or ctx.force)
+    end
+    ctx.assert_no_ghosts = function(area, force_override)
+        return M.assert_no_ghosts(ctx.surface, area, force_override or ctx.force)
+    end
 
     ctx.original_global_enabled = M.disable_global_enabled()
     M.reset_storage()
@@ -423,7 +796,8 @@ function M.setup_anchor_test(opts)
         M.clear_area(surface, base_pos, opts.clear_radius)
     end
 
-    ctx.anchor_id, ctx.anchor_entity, ctx.anchor_data = M.create_test_anchor({
+    local anchor_inventory = nil
+    ctx.anchor_id, ctx.anchor_entity, ctx.anchor_data, anchor_inventory = M.create_test_anchor({
         surface = surface,
         force = force,
         position = base_pos,
@@ -434,6 +808,7 @@ function M.setup_anchor_test(opts)
         seed = opts.anchor_seed,
         track = ctx.track,
     })
+    ctx.anchor_inventory = anchor_inventory
 
     return ctx
 end
@@ -496,6 +871,25 @@ end
 function M.assert_spider_status(ctx, spider_id, expected_status)
     local sd = M.get_spider_data(ctx, spider_id)
     assert.are_equal(expected_status, sd.status)
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@param spider_id string
+function M.assert_spider_following_anchor(ctx, spider_id)
+    local sd = M.get_spider_data(ctx, spider_id)
+    assert(sd.entity and sd.entity.valid, "spider entity missing/invalid")
+    local ft = sd.entity.follow_target
+    assert(ft and ft.valid, "spider is not following a valid target")
+    assert(ctx.anchor_entity and ctx.anchor_entity.valid, "anchor entity missing/invalid")
+    assert.are_equal(ctx.anchor_entity.unit_number, ft.unit_number)
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@param spider_ids string[]
+function M.assert_spiders_idle(ctx, spider_ids)
+    for _, spider_id in ipairs(spider_ids or {}) do
+        M.assert_spider_status(ctx, spider_id, "deployed_idle")
+    end
 end
 
 ---@param anchor_id string?

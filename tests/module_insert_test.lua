@@ -2,31 +2,23 @@ local spider = require("scripts/spider")
 local constants = require("scripts/constants")
 local test_utils = require("tests/test_utils")
 
-describe("module insertion", function()
-    local ctx
-
+test_utils.describe_anchor_test("module insertion", function()
+    return {
+        base_pos = test_utils.random_base_pos(8000),
+        clean_radius = 60,
+        clear_radius = 20,
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = { { name = "spiderling", count = 10 } },
+        anchor_id_prefix = "test_anchor_modules",
+    }
+end, function(ctx)
     local function clear_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, {
             anchor_entity = ctx.anchor_entity,
             skip_spiders = true,
         })
     end
-
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 8000 + math.random(0, 50), y = math.random(-20, 20) },
-            clean_radius = 60,
-            clear_radius = 20,
-            anchor_name = "wooden-chest",
-            anchor_inventory_id = defines.inventory.chest,
-            anchor_seed = { { name = "spiderling", count = 10 } },
-            anchor_id_prefix = "test_anchor_modules",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
 
     test("inserts modules into an assembling machine (3x3)", function()
         local target_offset = { x = 18, y = 0 }
@@ -43,7 +35,8 @@ describe("module insertion", function()
         local module_inventory = machine.get_module_inventory()
         assert.is_true(module_inventory and module_inventory.valid)
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         local requested = 2
         local supplied = 50
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
@@ -105,7 +98,8 @@ describe("module insertion", function()
         local module_inventory = refinery.get_module_inventory()
         assert.is_true(module_inventory and module_inventory.valid)
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         local requested = 3
         local supplied = 60
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
@@ -170,7 +164,8 @@ describe("module insertion", function()
 
         assert.is_true(module_inventory[1].set_stack({ name = "productivity-module", count = 1, quality = "normal" }))
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "speed-module", count = 10, quality = "normal" })
 
         local proxy = ctx.spawn_item_request_proxy({

@@ -5,28 +5,20 @@ local constants = require("scripts/constants")
 local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 local test_utils = require("tests/test_utils")
 
-describe("tile deconstruction", function()
-    local ctx
-
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 6000 + math.random(0, 50), y = math.random(-20, 20) },
-            clean_radius = 40,
-            clear_radius = 16,
-            -- Use a character anchor so `mine_tile` is available (matches in-game behavior).
-            anchor_name = "character",
-            anchor_inventory_id = defines.inventory.character_main,
-            anchor_seed = { { name = "spiderling", count = 1 } },
-            anchor_id_prefix = "test_anchor_tile",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
-
+test_utils.describe_anchor_test("tile deconstruction", function()
+    return {
+        base_pos = test_utils.random_base_pos(6000),
+        clean_radius = 40,
+        clear_radius = 16,
+        -- Use a character anchor so `mine_tile` is available (matches in-game behavior).
+        anchor_name = "character",
+        anchor_inventory_id = defines.inventory.character_main,
+        anchor_seed = { { name = "spiderling", count = 1 } },
+        anchor_id_prefix = "test_anchor_tile",
+    }
+end, function(ctx)
     test("removes deconstruct-marked stone-path tile", function()
-        local tile_pos = { x = ctx.base_pos.x + 2, y = ctx.base_pos.y }
+        local tile_pos = ctx.pos({ x = 2, y = 0 })
         ctx.surface.set_tiles({ { name = "grass-1", position = tile_pos } }, true)
         ctx.surface.set_tiles({ { name = "stone-path", position = tile_pos } }, true)
 
@@ -44,6 +36,9 @@ describe("tile deconstruction", function()
         local spider_id = spider.deploy(ctx.anchor_id)
         assert.is_not_nil(spider_id)
 
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
+
         test_utils.wait_until({
             timeout_ticks = 60 * 20,
             description = "single tile deconstruct",
@@ -51,7 +46,6 @@ describe("tile deconstruction", function()
             condition = function()
                 local current_tile = ctx.surface.get_tile(tile_pos)
                 if current_tile and current_tile.valid and current_tile.name ~= "stone-path" then
-                    local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.character_main)
                     if inventory.get_item_count("stone-brick") >= 1 then
                         assert.are_equal("grass-1", current_tile.name)
                         return true
@@ -65,10 +59,10 @@ describe("tile deconstruction", function()
 
     test("auto-deploy mines multiple deconstruct-marked tiles without double-counting proxies", function()
         local tile_positions = {
-            { x = ctx.base_pos.x + 2, y = ctx.base_pos.y },
-            { x = ctx.base_pos.x + 3, y = ctx.base_pos.y },
-            { x = ctx.base_pos.x + 2, y = ctx.base_pos.y + 1 },
-            { x = ctx.base_pos.x + 3, y = ctx.base_pos.y + 1 },
+            ctx.pos({ x = 2, y = 0 }),
+            ctx.pos({ x = 3, y = 0 }),
+            ctx.pos({ x = 2, y = 1 }),
+            ctx.pos({ x = 3, y = 1 }),
         }
 
         for _, tile_pos in ipairs(tile_positions) do
@@ -96,7 +90,8 @@ describe("tile deconstruction", function()
             assert.is_true(e.type ~= "deconstructible-tile-proxy")
         end
 
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.character_main)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         inventory.insert({ name = "spiderling", count = 50 })
 
         local anchor_area = anchor.get_expanded_work_area(ctx.anchor_data)
@@ -128,8 +123,7 @@ describe("tile deconstruction", function()
                     end
                 end
 
-                local final_inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.character_main)
-                if final_inventory.get_item_count("stone-brick") < #tile_positions then
+                if inventory.get_item_count("stone-brick") < #tile_positions then
                     return false
                 end
 

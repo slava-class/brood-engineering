@@ -2,67 +2,46 @@ local spider = require("scripts/spider")
 local utils = require("scripts/utils")
 local test_utils = require("tests/test_utils")
 
-describe("spider state transitions", function()
-    local ctx
-    local surface
-    local force
-    local base_pos
-    local created = {}
-    local anchor_id
-    local anchor_entity
-    local anchor_data
+test_utils.describe_anchor_test("spider state transitions", function()
+    return {
+        base_pos_factory = function()
+            return { x = 2000 + math.random(0, 50), y = math.random(-20, 20) }
+        end,
+        anchor_name = "wooden-chest",
+        anchor_inventory_id = defines.inventory.chest,
+        anchor_seed = {},
+        anchor_id_prefix = "test_anchor",
+    }
+end, function(ctx)
     local spider_id
     local spider_entity
     local task_target
     local task
 
-    local function track(entity)
-        return test_utils.track(created, entity)
-    end
-
     before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos_factory = function()
-                return { x = 2000 + math.random(0, 50), y = math.random(-20, 20) }
-            end,
-            anchor_name = "wooden-chest",
-            anchor_inventory_id = defines.inventory.chest,
-            anchor_seed = {},
-            anchor_id_prefix = "test_anchor",
-        })
-
-        surface = ctx.surface
-        force = ctx.force
-        base_pos = ctx.base_pos
-        created = ctx.created
-        anchor_id = ctx.anchor_id
-        anchor_entity = ctx.anchor_entity
-        anchor_data = ctx.anchor_data
-
-        spider_entity = track(surface.create_entity({
+        spider_entity = ctx.spawn({
             name = "spiderling",
-            position = { x = base_pos.x + 5, y = base_pos.y },
-            force = force,
-        }))
+            offset = { x = 5, y = 0 },
+        })
 
         spider_id = "test_spider_" .. game.tick .. "_" .. math.random(1, 1000000)
         local spider_entity_id = utils.get_entity_id(spider_entity)
         local spider_data = {
             entity = spider_entity,
             entity_id = spider_entity_id,
-            anchor_id = anchor_id,
+            anchor_id = ctx.anchor_id,
             status = "deployed_idle",
             task = nil,
             idle_since = nil,
         }
 
-        anchor_data.spiders[spider_id] = spider_data
-        storage.spider_to_anchor[spider_id] = anchor_id
+        ctx.anchor_data.spiders[spider_id] = spider_data
+        storage.spider_to_anchor[spider_id] = ctx.anchor_id
         storage.entity_to_spider[spider_entity_id] = spider_id
 
         ctx.defer(function()
-            if anchor_data and anchor_data.spiders then
-                anchor_data.spiders[spider_id] = nil
+            if ctx.anchor_data and ctx.anchor_data.spiders then
+                ctx.anchor_data.spiders[spider_id] = nil
             end
             if storage.spider_to_anchor then
                 storage.spider_to_anchor[spider_id] = nil
@@ -70,13 +49,15 @@ describe("spider state transitions", function()
             if storage.entity_to_spider then
                 storage.entity_to_spider[spider_entity_id] = nil
             end
+            if storage.assigned_tasks and task and task.id then
+                storage.assigned_tasks[task.id] = nil
+            end
         end)
 
-        task_target = track(surface.create_entity({
+        task_target = ctx.spawn({
             name = "stone-furnace",
-            position = { x = base_pos.x + 15, y = base_pos.y },
-            force = force,
-        }))
+            offset = { x = 15, y = 0 },
+        })
 
         task = {
             id = "test_task_" .. game.tick,
@@ -85,15 +66,9 @@ describe("spider state transitions", function()
         }
     end)
 
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-        ctx = nil
-    end)
-
     test("assign_task sets moving_to_task and tracks assignment", function()
         spider.assign_task(spider_id, task)
-        local anchor_data = storage.anchors[anchor_id]
-        local spider_data = anchor_data.spiders[spider_id]
+        local spider_data = test_utils.get_spider_data(ctx, spider_id)
 
         assert.are_equal("moving_to_task", spider_data.status)
         assert.is_not_nil(spider_data.task)
@@ -106,14 +81,12 @@ describe("spider state transitions", function()
     test("clear_task returns to idle and clears tracking", function()
         spider.assign_task(spider_id, task)
         spider.clear_task(spider_id)
-        local anchor_data = storage.anchors[anchor_id]
-        local spider_data = anchor_data.spiders[spider_id]
 
+        local spider_data = test_utils.get_spider_data(ctx, spider_id)
         assert.are_equal("deployed_idle", spider_data.status)
         assert.is_nil(spider_data.task)
         assert.is_nil(storage.assigned_tasks[task.id])
-        assert.is_not_nil(spider_entity.follow_target)
-        assert.are_equal(anchor_entity.unit_number, spider_entity.follow_target.unit_number)
+        test_utils.assert_spider_following_anchor(ctx, spider_id)
 
         after_ticks(1, function()
             local destinations = spider_entity.autopilot_destinations
@@ -124,15 +97,13 @@ describe("spider state transitions", function()
     test("arrive_at_task and complete_task clear assignment and follow anchor", function()
         spider.assign_task(spider_id, task)
         spider.arrive_at_task(spider_id)
-        local anchor_data = storage.anchors[anchor_id]
-        local spider_data = anchor_data.spiders[spider_id]
-        assert.are_equal("executing", spider_data.status)
+        test_utils.assert_spider_status(ctx, spider_id, "executing")
 
         spider.complete_task(spider_id)
-        assert.are_equal("deployed_idle", spider_data.status)
+        test_utils.assert_spider_status(ctx, spider_id, "deployed_idle")
+        local spider_data = test_utils.get_spider_data(ctx, spider_id)
         assert.is_nil(spider_data.task)
         assert.is_nil(storage.assigned_tasks[task.id])
-        assert.is_not_nil(spider_entity.follow_target)
-        assert.are_equal(anchor_entity.unit_number, spider_entity.follow_target.unit_number)
+        test_utils.assert_spider_following_anchor(ctx, spider_id)
     end)
 end)

@@ -1,36 +1,29 @@
 local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
-describe("recall spill behavior", function()
-    local ctx
-
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 9000 + math.random(0, 50), y = math.random(-20, 20) },
-            ensure_chunks_radius = 1,
-            clean_radius = 40,
-            clear_radius = 16,
-            anchor_name = "character",
-            anchor_inventory_id = defines.inventory.character_main,
-            anchor_seed = { { name = "spiderling", count = 1 } },
-            anchor_id_prefix = "test_anchor_recall_spill",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
-
+test_utils.describe_anchor_test("recall spill behavior", function()
+    return {
+        base_pos = test_utils.random_base_pos(9000),
+        ensure_chunks_radius = 1,
+        clean_radius = 40,
+        clear_radius = 16,
+        anchor_name = "character",
+        anchor_inventory_id = defines.inventory.character_main,
+        anchor_seed = { { name = "spiderling", count = 1 } },
+        anchor_id_prefix = "test_anchor_recall_spill",
+    }
+end, function(ctx)
     test("recall spills spiderling item when anchor inventory is full", function()
-        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.character_main)
+        local inventory = ctx.anchor_inventory
+        assert(inventory and inventory.valid)
         assert.are_equal(1, inventory.get_item_count("spiderling"))
 
         local spider_id = spider.deploy(ctx.anchor_id)
         assert.is_not_nil(spider_id)
         assert.are_equal(0, inventory.get_item_count("spiderling"))
 
-        local spider_data = ctx.anchor_data.spiders[spider_id]
-        assert.is_true(spider_data and spider_data.entity and spider_data.entity.valid)
+        local spider_data = test_utils.get_spider_data(ctx, spider_id)
+        assert.is_true(spider_data.entity and spider_data.entity.valid)
         local spider_entity = spider_data.entity
         spider_entity.follow_target = nil
         local spider_pos = { x = spider_entity.position.x, y = spider_entity.position.y }

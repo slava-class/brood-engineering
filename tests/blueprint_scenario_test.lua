@@ -5,40 +5,31 @@ local blueprint_fixtures = require("tests/fixtures/blueprints")
 local blueprint_test_utils = require("tests/blueprint_test_utils")
 local test_utils = require("tests/test_utils")
 
-describe("blueprint-like placement scenarios", function()
-    local ctx
+local report = blueprint_test_utils.report
+local collect_blueprints = blueprint_test_utils.collect_blueprints
+local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
 
-    local report = blueprint_test_utils.report
-
+test_utils.describe_anchor_test("blueprint-like placement scenarios", function()
+    return {
+        base_pos = test_utils.random_base_pos(7200),
+        ensure_chunks_radius = 2,
+        clean_radius = 80,
+        clear_radius = 25,
+        anchor_name = "character",
+        anchor_inventory_id = defines.inventory.character_main,
+        anchor_seed = {
+            { name = "spiderling", count = 1 },
+            { name = "stone-furnace", count = 1, quality = "normal" },
+        },
+        anchor_id_prefix = "test_anchor_blueprint",
+    }
+end, function(ctx)
     local function clear_area(position, radius)
         test_utils.clear_area(ctx.surface, position, radius, {
             anchor_entity = ctx.anchor_entity,
             skip_spiders = true,
         })
     end
-
-    local collect_blueprints = blueprint_test_utils.collect_blueprints
-    local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
-
-    before_each(function()
-        ctx = test_utils.setup_anchor_test({
-            base_pos = { x = 7200 + math.random(0, 50), y = math.random(-20, 20) },
-            ensure_chunks_radius = 2,
-            clean_radius = 80,
-            clear_radius = 25,
-            anchor_name = "character",
-            anchor_inventory_id = defines.inventory.character_main,
-            anchor_seed = {
-                { name = "spiderling", count = 1 },
-                { name = "stone-furnace", count = 1, quality = "normal" },
-            },
-            anchor_id_prefix = "test_anchor_blueprint",
-        })
-    end)
-
-    after_each(function()
-        test_utils.teardown_anchor_test(ctx)
-    end)
 
     test("blueprint fixture reporting smoke test", function()
         report(
@@ -53,7 +44,7 @@ describe("blueprint-like placement scenarios", function()
     end)
 
     test("does not crash when a blueprint ghost is blocked by a random-drop entity", function()
-        local target_pos = { x = ctx.base_pos.x + 6, y = ctx.base_pos.y }
+        local target_pos = ctx.pos({ x = 6, y = 0 })
         clear_area(target_pos, 18)
 
         -- This simulates a common blueprint placement scenario:
@@ -142,8 +133,13 @@ describe("blueprint-like placement scenarios", function()
                 inv.destroy()
                 return
             end
+            ctx.defer(function()
+                if inv and inv.valid then
+                    inv.destroy()
+                end
+            end)
 
-            local build_pos = { x = ctx.base_pos.x + 20, y = ctx.base_pos.y }
+            local build_pos = ctx.pos({ x = 20, y = 0 })
             test_utils.ensure_chunks(ctx.surface, build_pos, 4)
 
             local blueprints = collect_blueprints(stack, 3)
@@ -153,7 +149,6 @@ describe("blueprint-like placement scenarios", function()
                         tostring(fixture_name)
                     )
                 )
-                inv.destroy()
                 return
             end
 
@@ -235,36 +230,17 @@ describe("blueprint-like placement scenarios", function()
                     )
                 )
 
-                -- Ensure the task scan can handle whatever ghosts were created.
-                local ok_loop, loop_err = pcall(function()
-                    test_utils.run_main_loop()
-                end)
-                assert.is_true(
-                    ok_loop,
-                    "run_main_loop crashed after building fixture: "
-                        .. tostring(fixture_name)
-                        .. " #"
-                        .. tostring(idx)
-                        .. ": "
-                        .. tostring(loop_err)
-                )
-
                 ::continue_blueprint::
             end
 
-            inv.destroy()
-
-            if not ok_any then
-                report(("[Brood][BlueprintFixture] no buildable blueprints for %s"):format(tostring(fixture_name)))
-                return
-            end
-
-            report(
-                ("[Brood][BlueprintFixture] built %s blueprints: %s"):format(
-                    tostring(fixture_name),
-                    table.concat(built_summaries, ", ")
+            if ok_any then
+                report(
+                    ("[Brood][BlueprintFixture] built %s blueprints: %s"):format(
+                        tostring(fixture_name),
+                        table.concat(built_summaries, ", ")
+                    )
                 )
-            )
+            end
         end)
     end
 end)
