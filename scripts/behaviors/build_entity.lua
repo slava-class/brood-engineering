@@ -3,6 +3,7 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local fapi = require("scripts/fapi")
 
 local behavior = {
     name = "build_entity",
@@ -86,7 +87,7 @@ local function find_reposition(spider_entity, ghost, padding)
     local best = nil
     local best_dist = nil
     for _, candidate in ipairs(candidates) do
-        local pos = surface.find_non_colliding_position("spiderling", candidate, 10, 0.5)
+        local pos = fapi.find_non_colliding_position(surface, "spiderling", candidate, 10, 0.5)
         if pos then
             local dist = utils.distance(spider_entity.position, pos)
             if not best_dist or dist < best_dist then
@@ -106,11 +107,11 @@ end
 ---@return LuaEntity? revived_entity
 ---@return LuaEntity? proxy
 local function revive_ghost(ghost, options)
-    -- `LuaEntity.revive()` is a LuaObject method; wrap in a closure so we call it in the
-    -- normal `ghost.revive(options)` form.
-    -- Docs: `mise run docs -- open runtime:method:LuaEntity.revive`
+    -- Docs: `mise run docs -- open runtime/classes/LuaEntity.md#revive`
+    -- Note: `LuaEntity.revive` uses the named-table calling convention.
+    local revive_opts = options or nil
     local ok, collided_items, revived_entity, proxy = pcall(function()
-        return ghost.revive(options)
+        return ghost.revive(revive_opts)
     end)
     if not ok then
         return false, nil, nil, nil

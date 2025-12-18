@@ -30,6 +30,10 @@ run = "mise run fmt-lua-check"
 [tasks.docs]
 # Wrapper around the local factorio-llm-docs corpus (search/get/open).
 # Configure the checkout path via FACTORIO_LLM_DOCS_ROOT if needed.
+# Examples:
+# - `mise run docs -- search "LuaSurface.set_tiles"`
+# - `mise run docs -- call "runtime:method:LuaSurface.set_tiles"`
+# - `mise run docs -- open "runtime:method:LuaSurface.set_tiles" --call`
 run = "bash bin/fdocs"
 
 [env]

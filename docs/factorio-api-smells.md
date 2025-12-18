@@ -1,228 +1,139 @@
 # Factorio API usage smells (Brood Engineering)
 
-This doc captures Factorio runtime API callsites in this repo that look “off” (or inconsistent) and are worth auditing/fixing.
+This doc captures Factorio runtime API callsites in this repo that are easy to get subtly wrong (calling convention, arg order, “takes table” vs positional) and records the verified shapes for the Factorio `2.0` line.
 
 - Target game version: Factorio `2.0` (see `info.json`)
-- Offline docs corpus used for verification: `2.0.72`
+- Offline docs corpus used for verification: `2.0.72` (`~/workspace/factorio-llm-docs/llm-docs/2.0.72/runtime-api.json`)
 
 ## High-level checklist
 
-- [ ] Normalize “destroy” calls to match `LuaEntity.destroy` (no `{ raise_destroyed = ... }` tables)
-- [ ] Fix `LuaControl.teleport(...)` argument order (esp. “surface”)
-- [ ] Fix `LuaSurface.find_non_colliding_position(...)` argument order
-- [ ] Fix `LuaEntity.revive(...)` calling convention (and any wrapper helpers)
-- [ ] Fix `LuaSurface.set_tiles(...)` calling convention / argument order
-- [ ] Fix `LuaSurface.spill_item_stack(...)` calling convention (table vs args) consistently
-- [ ] Confirm `LuaSurface.create_entity{ name="item-on-ground", ... }` uses the correct key for the item stack (`item` vs `stack`)
-- [ ] Add thin wrapper helpers for these APIs and use them everywhere
+- [ ] Prefer wrappers for “gotcha” APIs (`scripts/fapi.lua`, `scripts/utils.lua`)
+- [ ] Audit `LuaEntity.destroy{...}` semantics (`raise_destroy` true/false everywhere)
+- [ ] Keep `LuaControl.teleport(position, surface, ...)` callsites consistent (and wrapped)
+- [ ] Keep `LuaSurface.find_non_colliding_position(name, center, ...)` callsites consistent (and wrapped)
+- [ ] Keep `LuaSurface.set_tiles(tiles, correct_tiles, ...)` callsites consistent (and wrapped)
+- [ ] Standardize all `LuaSurface.spill_item_stack{...}` usage via a single helper
+- [ ] Avoid undocumented `create_entity{ stack = ... }` patterns; use documented `item = <LuaItemStack>` if needed
 - [ ] Run FactorioTest integration tests after changes
 
-## 1) `LuaEntity.destroy` uses boolean params, not `{ raise_destroyed = ... }`
+## Canonical source of truth
 
-Docs: `mise run docs -- open runtime/classes/LuaEntity.md#destroy`
+The Markdown pages are useful for descriptions, but the canonical calling convention and positional argument order for a specific Factorio version is:
 
-Signature (docs):
+- `runtime-api.json` (runtime): `~/workspace/factorio-llm-docs/llm-docs/<version>/runtime-api.json`
+- `prototype-api.json` (data stage): `~/workspace/factorio-llm-docs/llm-docs/<version>/prototype-api.json`
 
-```lua
-LuaEntity.destroy(do_cliff_correction?: boolean, player?: PlayerIdentification, raise_destroy?: boolean, undo_index?: uint32) -> boolean
-```
+In particular:
 
-Smell:
+- `format.takes_table` tells you whether the function/method expects a single named-argument table.
+- `parameters[].order` tells you the positional call order (when `takes_table` is false).
 
-- Several callsites pass a table to `destroy(...)` and/or use the key `raise_destroyed` (note the “-ed”), but the docs show a boolean parameter named `raise_destroy` (no “-ed”).
-- Some callsites use `raise_destroy`, others use `raise_destroyed`, suggesting a mix of old/new conventions.
+## 1) `LuaEntity.destroy` uses the named-table calling convention
 
-Callsites (table argument and/or `raise_destroyed` key):
+Verified (runtime-api.json):
 
-- `scripts/behaviors/deconstruct_tile.lua:239` (`drop.destroy({ raise_destroy = true })`)
-- `scripts/spider.lua:334` (`spider_entity.destroy({ raise_destroy = false })`)
-- `scripts/behaviors/item_proxy.lua:350` (`proxy.destroy({ raise_destroy = false })`)
-- `scripts/behaviors/deconstruct_entity.lua:125` (`item_entity.destroy({ raise_destroyed = true })`)
-- `scripts/behaviors/deconstruct_entity.lua:471` (`entity.destroy({ raise_destroyed = true })`)
-- `scripts/behaviors/deconstruct_entity.lua:542` (`entity.destroy({ raise_destroyed = true })`)
-- `tests/toggle_disable_recall_test.lua:73` (`e.destroy({ raise_destroyed = false })`)
-- `tests/test_utils.lua:548` (`e.destroy({ raise_destroyed = false })`)
-- `tests/test_utils.lua:1087` (`entity.destroy({ raise_destroyed = false })`)
-- `tests/test_utils.lua:1179` (`e.destroy({ raise_destroyed = false })`)
-- `tests/test_utils.lua:1195` (`e.destroy({ raise_destroyed = false })`)
+- `takes_table: true`
+- Keys: `do_cliff_correction?`, `raise_destroy?`, `player?`, `undo_index?`
+
+Repo status:
+
+- `raise_destroyed` typos were removed; callsites use `{ raise_destroy = ... }`.
 
 Follow-ups:
 
-- [ ] Decide on desired semantics (raise events or not) and encode them using the documented `raise_destroy` boolean parameter.
-- [ ] Remove `raise_destroyed` usage entirely (audit for typos vs intended behavior).
+- [ ] Decide when we actually want `raise_destroy = true` vs `false` and make it consistent.
 
-## 2) `LuaControl.teleport` surface is the 5th parameter (not the 2nd)
+## 2) `LuaControl.teleport` has `surface` as the 2nd positional arg
 
-Docs: `mise run docs -- open runtime/classes/LuaControl.md#teleport`
+Verified (runtime-api.json):
 
-Signature (docs):
+- `takes_table: false`
+- Positional order: `position`, `surface?`, `raise_teleported?`, `snap_to_grid?`, `build_check_type?`
 
-```lua
-LuaControl.teleport(build_check_type?: defines.build_check_type, position: MapPosition, raise_teleported?: boolean, snap_to_grid?: boolean, surface?: SurfaceIdentification) -> boolean
-```
+Repo status:
 
-Smell:
-
-- Calls like `teleport(valid_pos, surface)` appear to treat “surface” as the 2nd param, but the docs show the 2nd param is `position`, and `surface` is the 5th param.
-
-Callsites:
-
-- `scripts/spider.lua:584` (`spider_entity.teleport(valid_pos, surface)`)
-
-Additional callsites that likely rely on positional overload behavior (still worth verifying):
-
-- `scripts/spider.lua:637` (`spider_entity.teleport(valid_pos)`)
-- `scripts/spider.lua:657` (`spider_entity.teleport(valid_pos)`)
-- `scripts/behaviors/build_entity.lua:171` (`spider_entity.teleport(reposition)`)
-- `tests/idle_recall_test.lua:79` (`ctx.anchor_entity.teleport({ x = ..., y = ... })`)
+- `scripts/fapi.lua` exposes `fapi.teleport(control, position, surface, opts)` to avoid order confusion.
 
 Follow-ups:
 
-- [ ] Replace multi-arg calls with the documented arg order (and verify which overloads are actually supported in 2.0).
-- [ ] Consider a helper like `utils.teleport(control, position, surface?)` to centralize correctness.
+- [ ] Use `fapi.teleport` everywhere we pass a surface (avoid mixing styles).
 
-## 3) `LuaSurface.find_non_colliding_position` argument order differs from our usage
+## 3) `LuaSurface.find_non_colliding_position` takes `name` first
 
-Docs: `mise run docs -- open runtime/classes/LuaSurface.md#find_non_colliding_position`
+Verified (runtime-api.json):
 
-Signature (docs):
+- `takes_table: false`
+- Positional order: `name`, `center`, `radius`, `precision`, `force_to_tile_center?`
 
-```lua
-LuaSurface.find_non_colliding_position(center: MapPosition, force_to_tile_center?: boolean, name: EntityID, precision: double, radius: double) -> MapPosition?
-```
+Repo status:
 
-Smell:
-
-- Many calls use the old/other order: `find_non_colliding_position(name, center, radius, precision)`.
-- If the engine follows the documented signature strictly, those calls will type-mismatch (table where boolean expected, etc.).
-
-Callsites:
-
-- `scripts/behaviors/build_entity.lua:89`
-- `scripts/spider.lua:65`
-- `scripts/spider.lua:135`
-- `scripts/spider.lua:271`
-- `scripts/spider.lua:484`
-- `scripts/spider.lua:581`
-- `scripts/spider.lua:635`
-- `scripts/spider.lua:642`
-- `scripts/spider.lua:655`
+- `scripts/fapi.lua` exposes `fapi.find_non_colliding_position(surface, name, center, radius, precision, force_to_tile_center)`.
 
 Follow-ups:
 
-- [ ] Update all callsites to match the documented parameter order.
-- [ ] Add a small wrapper to prevent future regressions.
+- [ ] Keep callsites using `fapi.find_non_colliding_position` for consistency.
 
-## 4) `LuaEntity.revive` signature differs from our `{ raise_revive = true }` table usage
+## 4) `LuaEntity.revive` uses the named-table calling convention
 
-Docs: `mise run docs -- open runtime/classes/LuaEntity.md#revive`
+Verified (runtime-api.json):
 
-Signature (docs):
+- `takes_table: true`
+- Keys: `raise_revive?`, `overflow?`
 
-```lua
-LuaEntity.revive(overflow?: LuaInventory, raise_revive?: boolean) -> Dict<string, uint32>?, LuaEntity?, LuaEntity?
-```
+Repo status:
 
-Smell:
-
-- Some code calls `ghost.revive({ raise_revive = true })` and one wrapper passes an `options` table through.
-- The docs show `revive` taking up to 2 positional parameters (`overflow`, `raise_revive`) rather than an options table.
-
-Callsites:
-
-- `scripts/behaviors/build_entity.lua:113` (`ghost.revive(options)`)
-- `scripts/behaviors/build_tile.lua:114` (`ghost.revive({ raise_revive = true })`)
-- `scripts/behaviors/build_foundation.lua:117` (`ghost.revive({ raise_revive = true })`)
+- `scripts/behaviors/build_entity.lua` calls `ghost.revive({ raise_revive = true, overflow = inventory })`.
+- `scripts/behaviors/build_tile.lua` / `scripts/behaviors/build_foundation.lua` call `ghost.revive({ raise_revive = true })`.
 
 Follow-ups:
 
-- [ ] Align all revive calls with the documented signature.
-- [ ] Revisit the `revive_ghost(...)` helper in `scripts/behaviors/build_entity.lua` to ensure it matches Factorio 2.0 semantics.
+- [ ] Consider wrapping `revive` if we add more complicated options (so keys stay consistent).
 
-## 5) `LuaSurface.set_tiles` usage looks like 1.1-era ordering
+## 5) `LuaSurface.set_tiles` takes `tiles` first (positional)
 
-Docs: `mise run docs -- open runtime/classes/LuaSurface.md#set_tiles`
+Verified (runtime-api.json):
 
-Signature (docs):
+- `takes_table: false`
+- Positional order: `tiles`, `correct_tiles?`, `remove_colliding_entities?`, `remove_colliding_decoratives?`, `raise_event?`, `player?`, `undo_index?`
 
-```lua
-LuaSurface.set_tiles(correct_tiles?: boolean, player?: PlayerIdentification, raise_event?: boolean, remove_colliding_decoratives?: boolean, remove_colliding_entities?: boolean | "abort_on_collision", tiles: Array<Tile>, undo_index?: uint32)
-```
+Repo status:
 
-Smell:
-
-- Call sites use `set_tiles(tiles, true)` which appears to be the legacy ordering.
-
-Callsites:
-
-- `tests/tile_deconstruct_test.lua:17`
-- `tests/tile_deconstruct_test.lua:18`
-- `tests/tile_deconstruct_test.lua:64`
-- `tests/tile_deconstruct_test.lua:65`
-- `tests/test_utils.lua:1072`
-- `scripts/behaviors/deconstruct_tile.lua:483`
+- `scripts/fapi.lua` exposes `fapi.set_tiles(surface, tiles, correct_tiles, opts)`.
 
 Follow-ups:
 
-- [ ] Update these calls to match the documented parameter order/calling convention.
-- [ ] Prefer batching tiles (docs recommend fewer calls).
+- [ ] Prefer `fapi.set_tiles` in helpers/tests where call order confusion is likely.
 
-## 6) `LuaSurface.spill_item_stack` calling convention needs confirmation + standardization
+## 6) `LuaSurface.spill_item_stack` uses the named-table calling convention
 
-Docs: `mise run docs -- open runtime/classes/LuaSurface.md#spill_item_stack`
+Verified (runtime-api.json):
 
-Signature (docs):
+- `takes_table: true`
+- Keys (in order): `position`, `stack`, `enable_looted?`, `force?`, `allow_belts?`, `max_radius?`, `use_start_position_on_failure?`, `drop_full_stack?`
 
-```lua
-LuaSurface.spill_item_stack(allow_belts?: boolean, drop_full_stack?: boolean, enable_looted?: boolean, force?: ForceID, max_radius?: double, position: MapPosition, stack: ItemStackIdentification, use_start_position_on_failure?: boolean) -> Array<LuaEntity>
-```
+Repo status:
 
-Smell:
-
-- We currently pass a single table argument (Lua sugar for “named args”), which may or may not match Factorio 2.0’s expected calling convention.
-- Regardless of what’s correct, this should be consistent across runtime code + tests.
-
-Callsites:
-
-- `scripts/behaviors/deconstruct_entity.lua:35`
-- `scripts/behaviors/deconstruct_entity.lua:267`
-- `tests/entity_deconstruct_test.lua:64`
-- `tests/entity_deconstruct_test.lua:160`
+- `scripts/utils.lua` exposes `utils.spill_item_stack(surface, position, stack, opts)` for one canonical call shape.
 
 Follow-ups:
 
-- [ ] Confirm the actual supported call shape in Factorio 2.0 (table-style vs positional-style) and update all callsites accordingly.
-- [ ] Wrap `spill_item_stack` behind a helper function so the repo has one canonical calling style.
+- [ ] Move remaining direct `surface.spill_item_stack{...}` usages behind `utils.spill_item_stack` (including tests, if we want full consistency).
 
-## 7) `LuaSurface.create_entity` for `item-on-ground` uses `stack` key (docs show `item`)
+## 7) `LuaSurface.create_entity` for `item-on-ground` uses `item = <LuaItemStack>`
 
-Docs: `mise run docs -- open runtime/classes/LuaSurface.md#create_entity`
+Verified (runtime-api.json):
 
-Signature (docs excerpt includes):
+- `LuaSurface.create_entity{ ... item?: LuaItemStack, ... }` (not `stack = <ItemStackDefinition>`)
 
-```lua
-... force?: ForceID, item?: LuaItemStack, ... name: EntityID, position: MapPosition, ...
-```
+Repo status:
 
-Smell:
-
-- `scripts/spider.lua` creates `item-on-ground` using `stack = { name=..., count=... }`.
-- The docs signature shows an `item?: LuaItemStack` parameter, not `stack`.
-
-Callsites:
-
-- `scripts/spider.lua:680` (uses `stack = { name = "spiderling", count = 1 }`)
+- `scripts/utils.lua` exposes `utils.create_item_on_ground(surface, position, stack, opts)` which builds a temporary `LuaInventory` via `game.create_inventory(1)` and passes `item = inv[1]`.
 
 Follow-ups:
 
-- [ ] Confirm whether Factorio 2.0 expects `item = <LuaItemStack>` or still accepts `stack = <ItemStackDefinition>` for `item-on-ground`.
-- [ ] If needed, update the callsite and add a small test to cover spider death drops.
+- [ ] If we want to avoid the temp-inventory pattern, try to rely exclusively on `utils.spill_item_stack` for item drops.
 
-## Appendix: “Mise docs” command notes (for sandboxed environments)
+## Appendix: “mise docs” notes for sandboxed environments
 
-If `mise run docs` attempts to auto-install tools (and/or crashes), the following env vars were sufficient in this environment to prevent auto-install:
-
-- [ ] Export `MISE_AUTO_INSTALL=0`
-- [ ] Export `MISE_TASK_RUN_AUTO_INSTALL=0`
-- [ ] Export `MISE_EXEC_AUTO_INSTALL=0`
-
+- [ ] Set `MISE_CACHE_DIR`/`MISE_DATA_DIR`/`MISE_STATE_DIR`/`MISE_CONFIG_DIR`/`MISE_TMP_DIR` in the shell environment before running `mise` (repo `.mise.toml` `[env]` only affects task subprocesses).
+- [ ] Consider adding a “no auto-install” mode to the docs runner so `mise run docs` can operate without network access.

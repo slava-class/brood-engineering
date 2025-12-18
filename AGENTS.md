@@ -34,8 +34,7 @@ If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-
 Codex CLI note:
 
 - In approval-gated runs (especially `approval_policy=untrusted`), `mise run docs -- ...` may be aborted until the user approves the command. If that happens, re-run it while explicitly requesting approval (with a 1-sentence justification).
-- In filesystem-sandboxed runs (for example `sandbox_mode=workspace-write`), mise may not be allowed to write to its default home-scoped cache/data/state dirs. To avoid `mise WARN failed to write cache file ...`, launch mise with workspace dirs, e.g. `MISE_CACHE_DIR="$PWD/.mise/cache" MISE_DATA_DIR="$PWD/.mise/data" MISE_STATE_DIR="$PWD/.mise/state" MISE_CONFIG_DIR="$PWD/.mise/config" MISE_TMP_DIR="$PWD/.mise/tmp" mise run fmt-lua-check`.
-- Note: `.mise.toml` `[env]` only affects task subprocesses; it does not change where the `mise` process itself writes its cache/state (those must be set in the environment before invoking `mise`).
+- `bin/fdocs` exports workspace-local `MISE_*_DIR` defaults so `mise run docs -- ...` works in filesystem-sandboxed environments without writing to home-scoped dirs.
 
 ## Factorio API Usage (MUST)
 
@@ -50,6 +49,45 @@ When writing gameplay code or tests, you **MUST** look up the Factorio API in th
 - **MUST** assume some APIs require the single “named parameter table” form even if you expect positional arguments.
 - **Recommended:** create small wrapper helpers in our own code for tricky API interactions. Once a wrapper is implemented + validated, you can use that wrapper freely, but you must still look up Factorio APIs when adding/changing wrapper behavior.
 
+### Calling Convention + Parameter Order Gotchas (Factorio 2.0)
+
+Factorio’s runtime API includes two separate “gotcha” axes:
+
+1. **Calling convention:** some methods require/allow a single “named parameter table” argument (`takes_table`), while others are positional-only.
+2. **Call argument order:** positional calls must follow the canonical `order` in the underlying corpus.
+
+Because of this, **do not** “pattern match” on the printed signature alone. A call can look plausible but still pass the wrong type into an early param and crash at runtime.
+
+**Rules**
+
+- **MUST** prefer the **named table form** whenever the method uses `takes_table: true` in the corpus (common examples: `LuaEntity.destroy`, `LuaEntity.revive`, `LuaSurface.spill_item_stack`).
+- **MUST** follow the **corpus call order** when using positional calls.
+- **Recommended:** for APIs that have historically tripped us up, wrap them behind a helper function so the rest of the codebase never has to remember the order.
+- **Recommended:** use `mise run docs -- call "<chunkId|symbolKey>"` (or `mise run docs -- open "<...>" --call`) to get a canonical, copy-pastable call form.
+
+**Known tricky runtime APIs (2.0.x)**
+
+- `LuaSurface.find_non_colliding_position`: called as `surface.find_non_colliding_position(name, center, radius, precision[, force_to_tile_center])` (name is first).
+- `LuaSurface.set_tiles`: called as `surface.set_tiles(tiles, correct_tiles[, ...])` (tiles is first).
+- `LuaControl.teleport`: called as `control.teleport(position[, surface[, raise_teleported[, snap_to_grid[, build_check_type]]]])` (surface is second).
+
+If you need to sanity check `takes_table` or call order directly, inspect the corpus JSON for the target version:
+
+- Runtime: `~/workspace/factorio-llm-docs/llm-docs/<version>/runtime-api.json`
+- Prototype: `~/workspace/factorio-llm-docs/llm-docs/<version>/prototype-api.json`
+
+### Repo Wrapper Helpers (Preferred)
+
+When these APIs show up in gameplay code or tests, prefer using our wrappers so callsites don't have to remember subtle rules:
+
+- `scripts/fapi.lua`: thin wrappers for positional “order gotchas” (`fapi.find_non_colliding_position`, `fapi.set_tiles`, `fapi.teleport`).
+- `scripts/utils.lua`: standardized item drop helpers:
+  - `utils.safe_item_stack(...)` (normalize `LuaItemStack`/tables to `ItemStackDefinition`)
+  - `utils.spill_item_stack(surface, position, stack, opts)` (wraps `LuaSurface.spill_item_stack{...}`)
+  - `utils.create_item_on_ground(surface, position, stack, opts)` (documented `LuaSurface.create_entity{ item = <LuaItemStack> }` fallback)
+
+Avoid calling undocumented patterns like `surface.create_entity{ name="item-on-ground", stack = { ... } }` directly; use the helpers above instead.
+
 ### Usage
 
 - List available Factorio versions:
@@ -63,18 +101,24 @@ When writing gameplay code or tests, you **MUST** look up the Factorio API in th
 - Search/versions as JSON (for scripts/tools):
   - `mise run docs -- versions --json`
   - `mise run docs -- search "<query>" --json`
+- Print call form metadata for a method/function:
+  - `mise run docs -- call "<chunkId|symbolKey>" [--version <x.y.z>]`
+  - `mise run docs -- call "<chunkId|symbolKey>" --json [--version <x.y.z>]`
 - Get a specific chunk by exact chunk id:
   - `mise run docs -- get "<chunkId>" [--version <x.y.z>]`
 - Open content by chunk id, `relPath`, or `symbols.json` key:
   - `mise run docs -- open "<chunkId>" [--version <x.y.z>]`
   - `mise run docs -- open "<relPath>" [--version <x.y.z>]`
   - `mise run docs -- open "runtime:method:LuaSurface.set_tiles" [--version <x.y.z>]`
+- Print call form metadata via open:
+  - `mise run docs -- open "runtime:method:LuaSurface.set_tiles" --call [--version <x.y.z>]`
 - If your query/path starts with `--`, use end-of-flags:
   - `mise run docs -- search -- "--weird"`
 
 Notes:
 
 - Non-JSON output prints `Using version: ...` to stderr; use `--quiet` to suppress it, or `--json` for machine-readable output.
+- If `call`/`--call` says “No call metadata”, regenerate the corpus in `factorio-llm-docs` so `chunks.jsonl` includes `call`/`takes_table`/`table_optional`.
 
 ## Formatting (StyLua)
 

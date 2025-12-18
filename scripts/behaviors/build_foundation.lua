@@ -114,9 +114,7 @@ function behavior.execute(spider_data, ghost, inventory, anchor_data)
     local surface = ghost.surface
 
     -- Revive the tile ghost
-    local collisions, tile, proxy = ghost.revive({
-        raise_revive = true,
-    })
+    local collisions, tile, proxy = ghost.revive({ raise_revive = true })
 
     if tile or not ghost.valid then
         -- Remove item from inventory

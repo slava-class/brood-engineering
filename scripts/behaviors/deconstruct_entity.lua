@@ -27,19 +27,14 @@ local function insert_or_spill(inventory, stack, spill_surface, spill_position)
     end
 
     if stack.valid_for_read and spill_surface and spill_position then
-        local safe_stack = { name = stack.name, count = stack.count }
-        if stack.quality and stack.quality ~= "normal" then
-            safe_stack.quality = stack.quality
-        end
-        pcall(function()
-            spill_surface.spill_item_stack({
-                position = spill_position,
-                stack = safe_stack,
+        local safe_stack = utils.safe_item_stack(stack)
+        if safe_stack then
+            utils.spill_item_stack(spill_surface, spill_position, safe_stack, {
                 allow_belts = false,
                 enable_looted = true,
                 max_radius = 0,
             })
-        end)
+        end
         stack.clear()
     end
 end
@@ -122,7 +117,7 @@ local function pick_up_item_entity(inventory, item_entity)
     end
 
     if inserted >= stack.count then
-        item_entity.destroy({ raise_destroyed = true })
+        item_entity.destroy({ raise_destroy = true })
     else
         stack.count = stack.count - inserted
     end
@@ -263,15 +258,11 @@ local function insert_name_count(inventory, name, count, quality_name, spill_sur
         if quality_name and quality_name ~= "normal" then
             spilled.quality = quality_name
         end
-        pcall(function()
-            spill_surface.spill_item_stack({
-                position = spill_position,
-                stack = spilled,
-                allow_belts = false,
-                enable_looted = true,
-                max_radius = 0,
-            })
-        end)
+        utils.spill_item_stack(spill_surface, spill_position, spilled, {
+            allow_belts = false,
+            enable_looted = true,
+            max_radius = 0,
+        })
     end
 end
 
@@ -468,7 +459,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
                 inventory.remove({ name = "cliff-explosives", count = 1, quality = quality_name })
-                entity.destroy({ raise_destroyed = true })
+                entity.destroy({ raise_destroy = true })
                 return true
             end
         end
@@ -539,7 +530,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
     insert_transport_line_contents(entity, inventory, spill_surface, spill_position)
     transfer_all_entity_inventories(entity, inventory, spill_surface, spill_position)
     insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)
-    entity.destroy({ raise_destroyed = true })
+    entity.destroy({ raise_destroy = true })
 
     return not (entity and entity.valid)
 end

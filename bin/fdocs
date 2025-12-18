@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BROOD_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 FACTORIO_LLM_DOCS_ROOT="${FACTORIO_LLM_DOCS_ROOT:-$HOME/workspace/factorio-llm-docs}"
 
 if [[ ! -d "$FACTORIO_LLM_DOCS_ROOT" ]]; then
@@ -9,5 +10,25 @@ if [[ ! -d "$FACTORIO_LLM_DOCS_ROOT" ]]; then
   exit 1
 fi
 
-exec mise -C "$FACTORIO_LLM_DOCS_ROOT" run docs -- "$@"
+# Sandbox-friendly defaults: keep mise cache/data/state under the workspace instead of home dirs.
+# Override any of these by exporting the env var before calling `mise run docs`.
+export MISE_CACHE_DIR="${MISE_CACHE_DIR:-$BROOD_ROOT/.mise/cache}"
+export MISE_DATA_DIR="${MISE_DATA_DIR:-$BROOD_ROOT/.mise/data}"
+export MISE_STATE_DIR="${MISE_STATE_DIR:-$BROOD_ROOT/.mise/state}"
+export MISE_CONFIG_DIR="${MISE_CONFIG_DIR:-$BROOD_ROOT/.mise/config}"
+export MISE_TMP_DIR="${MISE_TMP_DIR:-$BROOD_ROOT/.mise/tmp}"
 
+# Avoid surprise network installs in restricted environments; set to 1 if you want auto-install.
+export MISE_AUTO_INSTALL="${MISE_AUTO_INSTALL:-0}"
+
+if command -v bun >/dev/null 2>&1; then
+  cd "$FACTORIO_LLM_DOCS_ROOT"
+  exec bun tools/search.ts "$@"
+fi
+
+if command -v mise >/dev/null 2>&1; then
+  exec mise -C "$FACTORIO_LLM_DOCS_ROOT" run docs -- "$@"
+fi
+
+echo "Missing required tool: bun (preferred) or mise (fallback)" >&2
+exit 127

@@ -3,6 +3,178 @@
 
 local utils = {}
 
+---@param quality any
+---@return string? quality_name
+local function normalize_quality_name(quality)
+    if type(quality) == "table" then
+        return quality.name
+    end
+    if type(quality) == "string" and quality ~= "" then
+        return quality
+    end
+    return nil
+end
+
+---@param stack any
+---@return ItemStackDefinition? safe_stack
+function utils.safe_item_stack(stack)
+    if stack == nil then
+        return nil
+    end
+
+    local ok_name, name = pcall(function()
+        return stack.name
+    end)
+    if not ok_name or type(name) ~= "string" or name == "" then
+        return nil
+    end
+
+    local count = 1
+    local ok_count, maybe_count = pcall(function()
+        return stack.count
+    end)
+    if ok_count and type(maybe_count) == "number" and maybe_count >= 1 then
+        count = maybe_count
+    end
+
+    local safe = { name = name, count = count }
+
+    local ok_q, quality = pcall(function()
+        return stack.quality
+    end)
+    if ok_q then
+        local quality_name = normalize_quality_name(quality)
+        if quality_name and quality_name ~= "normal" then
+            safe.quality = quality_name
+        end
+    end
+
+    return safe
+end
+
+---@class UtilsSpillItemStackOpts
+---@field allow_belts boolean? nil
+---@field drop_full_stack boolean? nil
+---@field enable_looted boolean? nil
+---@field force ForceID? nil
+---@field max_radius number? nil
+---@field use_start_position_on_failure boolean? nil
+
+---@param surface LuaSurface
+---@param position MapPosition
+---@param stack ItemStackIdentification
+---@param opts UtilsSpillItemStackOpts?
+---@return LuaEntity[]? created
+---@return any? err
+function utils.spill_item_stack(surface, position, stack, opts)
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return nil, "invalid_surface"
+    end
+    if not position then
+        return nil, "missing_position"
+    end
+    if not stack then
+        return nil, "missing_stack"
+    end
+
+    local stack_arg = stack
+    if type(stack) == "table" then
+        stack_arg = utils.safe_item_stack(stack) or stack
+    end
+
+    local args = {
+        position = position,
+        stack = stack_arg,
+    }
+    if opts then
+        for k, v in pairs(opts) do
+            if v ~= nil then
+                args[k] = v
+            end
+        end
+    end
+
+    local ok, created_or_err = pcall(function()
+        return surface.spill_item_stack(args)
+    end)
+    if not ok then
+        return nil, created_or_err
+    end
+    return created_or_err, nil
+end
+
+---@class UtilsCreateItemOnGroundOpts
+---@field force ForceID? nil
+---@field raise_built boolean? nil
+---@field create_build_effect_smoke boolean? nil
+---@field spawn_decorations boolean? nil
+---@field move_stuck_players boolean? nil
+---@field player PlayerIdentification? nil
+
+---@param surface LuaSurface
+---@param position MapPosition
+---@param stack any
+---@param opts UtilsCreateItemOnGroundOpts?
+---@return LuaEntity? entity
+---@return any? err
+function utils.create_item_on_ground(surface, position, stack, opts)
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return nil, "invalid_surface"
+    end
+    if not position then
+        return nil, "missing_position"
+    end
+
+    local safe_stack = utils.safe_item_stack(stack)
+    if not safe_stack then
+        return nil, "invalid_stack"
+    end
+    if not (game and game.create_inventory) then
+        return nil, "missing_game"
+    end
+
+    local inv = game.create_inventory(1)
+    local item = inv and inv[1] or nil
+    if not item then
+        if inv and inv.destroy then
+            pcall(inv.destroy, inv)
+        end
+        return nil, "missing_inventory_itemstack"
+    end
+
+    local ok_set, set_err = pcall(function()
+        item.set_stack(safe_stack)
+    end)
+    if not ok_set then
+        pcall(inv.destroy, inv)
+        return nil, set_err
+    end
+
+    local args = {
+        name = "item-on-ground",
+        position = position,
+        item = item,
+    }
+    if opts then
+        for k, v in pairs(opts) do
+            if v ~= nil then
+                args[k] = v
+            end
+        end
+    end
+
+    local ok_create, entity_or_err = pcall(function()
+        return surface.create_entity(args)
+    end)
+
+    pcall(inv.destroy, inv)
+
+    if not ok_create then
+        return nil, entity_or_err
+    end
+    return entity_or_err, nil
+end
+
 ---@return boolean
 local function debug_logging_enabled()
     local override = storage and storage.debug_logging_override

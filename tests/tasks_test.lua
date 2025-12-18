@@ -2,7 +2,14 @@ local tasks = require("scripts/tasks")
 local build_entity = require("scripts/behaviors/build_entity")
 local test_utils = require("tests/test_utils")
 
-test_utils.describe_surface_test("tasks", nil, function(ctx)
+test_utils.describe_surface_test("tasks", function()
+    storage._brood_test_surface_base_pos_counter = (storage._brood_test_surface_base_pos_counter or 0) + 1
+    local n = storage._brood_test_surface_base_pos_counter
+
+    return {
+        base_pos = { x = 10000 + (n * 200), y = 0 },
+    }
+end, function(ctx)
     before_each(function()
         storage.assigned_tasks = {}
     end)
@@ -38,6 +45,7 @@ test_utils.describe_surface_test("tasks", nil, function(ctx)
 
     test("skips already-assigned tasks", function()
         local pos = ctx.pos({ x = 15, y = 0 })
+        test_utils.clear_area(ctx.surface, pos, 12)
 
         local chest = ctx.spawn({
             name = "wooden-chest",
@@ -54,13 +62,35 @@ test_utils.describe_surface_test("tasks", nil, function(ctx)
         })
 
         local task_id = build_entity.get_task_id(ghost)
-        storage.assigned_tasks[task_id] = "spider_x"
+        -- Use a fully-consistent assignment record so periodic `tasks.cleanup_stale()`
+        -- (triggered by the main loop) doesn't erase it mid-test.
+        local spider_id = "test_spider_assigned"
+        local anchor_id = "test_anchor_assigned"
+        storage.anchors = storage.anchors or {}
+        storage.spider_to_anchor = storage.spider_to_anchor or {}
+
+        storage.anchors[anchor_id] = storage.anchors[anchor_id] or { spiders = {} }
+        storage.anchors[anchor_id].spiders[spider_id] = { task = { id = task_id } }
+        storage.spider_to_anchor[spider_id] = anchor_id
+        storage.assigned_tasks[task_id] = spider_id
+        ctx.defer(function()
+            if storage.assigned_tasks then
+                storage.assigned_tasks[task_id] = nil
+            end
+            if storage.spider_to_anchor then
+                storage.spider_to_anchor[spider_id] = nil
+            end
+            if storage.anchors and storage.anchors[anchor_id] and storage.anchors[anchor_id].spiders then
+                storage.anchors[anchor_id].spiders[spider_id] = nil
+            end
+        end)
 
         local area = { { pos.x - 3, pos.y - 3 }, { pos.x + 3, pos.y + 3 } }
         local task = tasks.find_best(ctx.surface, area, { ctx.force.name, "neutral" }, inventory)
         assert.is_nil(task)
 
         storage.assigned_tasks[task_id] = nil
+        storage.anchors[anchor_id].spiders[spider_id].task = nil
         local task2 = tasks.find_best(ctx.surface, area, { ctx.force.name, "neutral" }, inventory)
         assert.is_not_nil(task2)
         assert.are_equal("build_entity", task2.behavior_name)

@@ -70,7 +70,7 @@ end, function(ctx)
                 ctx.anchor_data.spiders[spider_id] = nil
             end
             if e and e.valid then
-                e.destroy({ raise_destroyed = false })
+                e.destroy({ raise_destroy = false })
             end
         end)
 

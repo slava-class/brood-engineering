@@ -1,4 +1,5 @@
 local spider = require("scripts/spider")
+local fapi = require("scripts/fapi")
 
 local M = {}
 
@@ -356,7 +357,14 @@ function M.describe_surface_test(name, opts, suite)
             if not base_pos and resolved.base_pos_factory then
                 base_pos = resolved.base_pos_factory()
             end
-            base_pos = base_pos or { x = 1000 + math.random(0, 50), y = math.random(-20, 20) }
+            if not base_pos then
+                storage._brood_test_surface_base_pos_counter = (storage._brood_test_surface_base_pos_counter or 0) + 1
+                local n = storage._brood_test_surface_base_pos_counter
+                base_pos = { x = 1000 + (n * 200), y = 0 }
+            end
+
+            -- Ensure chunks exist for deterministic entity placement + collision checks.
+            M.ensure_chunks(surface, base_pos, 2)
 
             local created = {}
             local cleanup = {}
@@ -545,7 +553,7 @@ function M.destroy_tracked(created)
     for _, e in ipairs(created or {}) do
         if e and e.valid then
             pcall(function()
-                e.destroy({ raise_destroyed = false })
+                e.destroy({ raise_destroy = false })
             end)
         end
     end
@@ -1069,7 +1077,7 @@ function M.clear_area(surface, position, radius, opts)
             tiles[#tiles + 1] = { name = "grass-1", position = { x = x, y = y } }
         end
     end
-    surface.set_tiles(tiles, true)
+    fapi.set_tiles(surface, tiles, true)
 
     local anchor_entity = opts and opts.anchor_entity or nil
     local anchor_unit_number = anchor_entity and anchor_entity.valid and anchor_entity.unit_number or nil
@@ -1084,7 +1092,7 @@ function M.clear_area(surface, position, radius, opts)
             if skip_spiders and entity.type == "spider-vehicle" then
                 goto continue
             end
-            entity.destroy({ raise_destroyed = false })
+            entity.destroy({ raise_destroy = false })
         end
         ::continue::
     end
@@ -1176,7 +1184,7 @@ function M.sanitize_area(surface, area, opts)
                     goto continue_destroy
                 end
                 pcall(function()
-                    e.destroy({ raise_destroyed = false })
+                    e.destroy({ raise_destroy = false })
                 end)
             end
             ::continue_destroy::
@@ -1192,7 +1200,7 @@ function M.sanitize_area(surface, area, opts)
         do
             if e and e.valid then
                 pcall(function()
-                    e.destroy({ raise_destroyed = false })
+                    e.destroy({ raise_destroy = false })
                 end)
             end
         end

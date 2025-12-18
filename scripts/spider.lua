@@ -4,6 +4,7 @@
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
 local anchor = require("scripts/anchor")
+local fapi = require("scripts/fapi")
 
 local spider = {}
 
@@ -62,7 +63,7 @@ local function get_build_entity_approach_position(spider_entity, ghost)
     local best = nil
     local best_dist = nil
     for _, candidate in ipairs(candidates) do
-        local pos = surface.find_non_colliding_position("spiderling", candidate, 10, 0.5)
+        local pos = fapi.find_non_colliding_position(surface, "spiderling", candidate, 10, 0.5)
         if pos then
             local dist = utils.distance(spider_entity.position, pos)
             if not best_dist or dist < best_dist then
@@ -132,7 +133,7 @@ function spider.deploy(anchor_id)
 
     local surface = anchor_entity.surface
     local spawn_pos = utils.random_position_in_radius(anchor_data.position, 5)
-    local valid_pos = surface.find_non_colliding_position("spiderling", spawn_pos, 10, 0.5)
+    local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", spawn_pos, 10, 0.5)
 
     if not valid_pos then
         valid_pos = anchor_data.position
@@ -225,66 +226,60 @@ function spider.recall(spider_id)
             if not (spill_surface and spill_position and stack) then
                 return
             end
-            local safe_stack = { name = stack.name, count = stack.count }
-            if stack.quality and stack.quality ~= "normal" then
-                safe_stack.quality = stack.quality
+            local safe_stack = utils.safe_item_stack(stack)
+            if not safe_stack then
+                return
             end
-            local force_id = (type(spill_force) == "table" and spill_force.name) or spill_force
 
-            local ok, created_or_err = pcall(spill_surface.spill_item_stack, {
-                position = spill_position,
-                stack = safe_stack,
+            local created, err = utils.spill_item_stack(spill_surface, spill_position, safe_stack, {
                 enable_looted = true,
                 allow_belts = false,
                 max_radius = 0,
                 use_start_position_on_failure = true,
-                force = force_id,
+                force = spill_force,
             })
-
-            local created = ok and created_or_err or nil
             if created and #created > 0 then
                 return
             end
-
-            if not ok then
-                utils.log("spill_item_stack failed: " .. tostring(created_or_err))
+            if err then
+                utils.log("spill_item_stack failed: " .. tostring(err))
             end
 
-            local ok2, created2_or_err = pcall(spill_surface.spill_item_stack, {
-                position = spill_position,
-                stack = safe_stack,
+            local created2, err2 = utils.spill_item_stack(spill_surface, spill_position, safe_stack, {
                 max_radius = 0,
                 use_start_position_on_failure = true,
             })
-            local created2 = ok2 and created2_or_err or nil
             if created2 and #created2 > 0 then
                 return
             end
-
-            if not ok2 then
-                utils.log("spill_item_stack fallback failed: " .. tostring(created2_or_err))
+            if err2 then
+                utils.log("spill_item_stack fallback failed: " .. tostring(err2))
             end
 
             -- Final fallback: spawn the item directly (used in spider.on_death too).
             local drop_position = spill_position
             pcall(function()
-                local pos = spill_surface.find_non_colliding_position("item-on-ground", spill_position, 10, 0.5)
+                local pos = fapi.find_non_colliding_position(spill_surface, "item-on-ground", spill_position, 10, 0.5)
                 if pos then
                     drop_position = pos
                 end
             end)
 
-            local item_on_ground = spill_surface.create_entity({
-                name = "item-on-ground",
-                position = drop_position,
-                force = force_id,
-                stack = safe_stack,
+            local item_on_ground, create_err = utils.create_item_on_ground(spill_surface, drop_position, safe_stack, {
+                force = spill_force,
+                raise_built = false,
+                create_build_effect_smoke = false,
+                spawn_decorations = false,
             })
             if item_on_ground and item_on_ground.valid then
-                item_on_ground.to_be_looted = true
-                if item_on_ground.order_deconstruction then
-                    pcall(item_on_ground.order_deconstruction, item_on_ground, force_id)
-                end
+                pcall(function()
+                    item_on_ground.to_be_looted = true
+                end)
+                pcall(function()
+                    item_on_ground.order_deconstruction(spill_force)
+                end)
+            elseif create_err then
+                utils.log("create_item_on_ground failed: " .. tostring(create_err))
             end
         end
 
@@ -481,7 +476,7 @@ function spider.assign_task(spider_id, task)
 
         -- Default: find a nearby non-colliding position close to the target.
         if not dest then
-            dest = surface.find_non_colliding_position("spiderling", target_pos, 5, 0.5) or target_pos
+            dest = fapi.find_non_colliding_position(surface, "spiderling", target_pos, 5, 0.5) or target_pos
         end
 
         task.approach_position = dest
@@ -578,10 +573,11 @@ function spider.teleport_to_anchor(spider_id)
     -- Find valid position near anchor
     local surface = anchor_entity.surface
     local spawn_pos = utils.random_position_in_radius(anchor_data.position, 10)
-    local valid_pos = surface.find_non_colliding_position("spiderling", spawn_pos, 20, 0.5) or anchor_data.position
+    local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", spawn_pos, 20, 0.5)
+        or anchor_data.position
 
     -- Teleport
-    spider_entity.teleport(valid_pos, surface)
+    fapi.teleport(spider_entity, valid_pos, surface)
 
     -- Clear any task
     spider.clear_task(spider_id)
@@ -632,14 +628,14 @@ function spider.jump(spider_id)
                 y = current_pos.y + (dy / dist) * jump_dist,
             }
             local valid_pos =
-                surface.find_non_colliding_position("spiderling", desired_pos, constants.jump_distance * 2, 0.5)
+                fapi.find_non_colliding_position(surface, "spiderling", desired_pos, constants.jump_distance * 2, 0.5)
             if valid_pos then
                 spider_entity.teleport(valid_pos)
             end
         end
 
         -- Re-path to current task after the hop.
-        spider_entity.autopilot_destination = surface.find_non_colliding_position("spiderling", tp, 5, 0.5) or tp
+        spider_entity.autopilot_destination = fapi.find_non_colliding_position(surface, "spiderling", tp, 5, 0.5) or tp
         spider_data.stuck_since = nil
         return
     end
@@ -652,7 +648,7 @@ function spider.jump(spider_id)
         x = current_pos.x + jump_dist * math.sin(angle),
         y = current_pos.y - jump_dist * math.cos(angle),
     }
-    local valid_pos = surface.find_non_colliding_position("spiderling", fallback_pos, jump_dist * 2, 0.5)
+    local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", fallback_pos, jump_dist * 2, 0.5)
     if valid_pos then
         spider_entity.teleport(valid_pos)
     end
@@ -677,15 +673,38 @@ function spider.on_death(spider_entity)
     local position = spider_entity.position
     local force = spider_entity.force
 
-    local item_on_ground = surface.create_entity({
-        name = "item-on-ground",
-        position = position,
-        force = force,
-        stack = { name = "spiderling", count = 1 },
-    })
+    local item_on_ground = nil
+    do
+        local created, err = utils.spill_item_stack(surface, position, { name = "spiderling", count = 1 }, {
+            allow_belts = false,
+            enable_looted = true,
+            force = force,
+            max_radius = 0,
+            use_start_position_on_failure = true,
+        })
+        if created and created[1] and created[1].valid then
+            item_on_ground = created[1]
+        elseif err then
+            utils.log("spill_item_stack (spider death) failed: " .. tostring(err))
+        end
+    end
+
+    if not (item_on_ground and item_on_ground.valid) then
+        item_on_ground = utils.create_item_on_ground(surface, position, { name = "spiderling", count = 1 }, {
+            force = force,
+            raise_built = false,
+            create_build_effect_smoke = false,
+            spawn_decorations = false,
+        })
+    end
 
     if item_on_ground and item_on_ground.valid then
-        item_on_ground.order_deconstruction(force)
+        pcall(function()
+            item_on_ground.to_be_looted = true
+        end)
+        pcall(function()
+            item_on_ground.order_deconstruction(force)
+        end)
     end
 
     utils.log("Spider died, dropped as item")
