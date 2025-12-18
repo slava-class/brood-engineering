@@ -34,5 +34,12 @@ run = "bash bin/fdocs"
 
 [env]
 # In sandboxed environments (e.g. Codex workspace-write), writing to `~/Library/Caches`
-# and other home-scoped directories may be blocked. Keep mise state inside the repo.
+# and other home-scoped directories may be blocked. This sets workspace-local dirs for
+# task subprocesses. Note: mise's own cache/state dirs are chosen at process start and
+# must be set in the shell environment before invoking `mise` if you want to silence
+# `mise WARN failed to write cache file ...`.
 MISE_CACHE_DIR = ".mise/cache"
+MISE_DATA_DIR = ".mise/data"
+MISE_STATE_DIR = ".mise/state"
+MISE_CONFIG_DIR = ".mise/config"
+MISE_TMP_DIR = ".mise/tmp"
