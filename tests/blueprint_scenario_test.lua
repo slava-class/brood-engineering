@@ -6,24 +6,13 @@ local blueprint_test_utils = require("tests/blueprint_test_utils")
 local test_utils = require("tests/test_utils")
 
 describe("blueprint-like placement scenarios", function()
-    local surface
-    local force
-    local base_pos
-    local created = {}
-    local anchor_id
-    local anchor_entity
-    local anchor_data
-    local original_global_enabled
+    local ctx
 
     local report = blueprint_test_utils.report
 
-    local function track(entity)
-        return test_utils.track(created, entity)
-    end
-
     local function clear_area(position, radius)
-        test_utils.clear_area(surface, position, radius, {
-            anchor_entity = anchor_entity,
+        test_utils.clear_area(ctx.surface, position, radius, {
+            anchor_entity = ctx.anchor_entity,
             skip_spiders = true,
         })
     end
@@ -32,37 +21,23 @@ describe("blueprint-like placement scenarios", function()
     local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
 
     before_each(function()
-        surface = game.surfaces[1]
-        force = game.forces.player
-        base_pos = { x = 7200 + math.random(0, 50), y = math.random(-20, 20) }
-        created = {}
-
-        test_utils.ensure_chunks(surface, base_pos, 2)
-
-        original_global_enabled = test_utils.disable_global_enabled()
-
-        -- Fully reset mod state for isolation.
-        test_utils.reset_storage()
-
-        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
-            surface = surface,
-            force = force,
-            position = base_pos,
-            name = "character",
-            inventory_id = defines.inventory.character_main,
-            seed = {
+        ctx = test_utils.setup_anchor_test({
+            base_pos = { x = 7200 + math.random(0, 50), y = math.random(-20, 20) },
+            ensure_chunks_radius = 2,
+            clean_radius = 80,
+            clear_radius = 25,
+            anchor_name = "character",
+            anchor_inventory_id = defines.inventory.character_main,
+            anchor_seed = {
                 { name = "spiderling", count = 1 },
                 { name = "stone-furnace", count = 1, quality = "normal" },
             },
             anchor_id_prefix = "test_anchor_blueprint",
-            track = track,
         })
     end)
 
     after_each(function()
-        test_utils.teardown_anchor(anchor_id, anchor_data)
-        test_utils.restore_global_enabled(original_global_enabled)
-        test_utils.destroy_tracked(created)
+        test_utils.teardown_anchor_test(ctx)
     end)
 
     test("blueprint fixture reporting smoke test", function()
@@ -78,33 +53,30 @@ describe("blueprint-like placement scenarios", function()
     end)
 
     test("does not crash when a blueprint ghost is blocked by a random-drop entity", function()
-        local target_pos = { x = base_pos.x + 6, y = base_pos.y }
+        local target_pos = { x = ctx.base_pos.x + 6, y = ctx.base_pos.y }
         clear_area(target_pos, 18)
 
         -- This simulates a common blueprint placement scenario:
         -- - A ghost overlaps an existing entity (e.g., tree/rock).
         -- - The player (or another system) marks the blocker for deconstruction.
         -- - Our task scan/assignment executes without crashing, even if mine products are random (amount_min=0).
-        local tree = track(surface.create_entity({
+        local tree = ctx.spawn({
             name = "tree-01",
             position = target_pos,
             force = "neutral",
-        }))
+        })
         assert.is_true(tree and tree.valid)
 
-        local ghost = track(surface.create_entity({
-            name = "entity-ghost",
+        local ghost = ctx.spawn_ghost({
             inner_name = "stone-furnace",
             position = target_pos,
-            force = force,
-            expires = false,
-        }))
+        })
         assert.is_true(ghost and ghost.valid)
 
-        tree.order_deconstruction(force)
+        tree.order_deconstruction(ctx.force)
         assert.is_true(tree.to_be_deconstructed())
 
-        local spider_id = spider.deploy(anchor_id)
+        local spider_id = spider.deploy(ctx.anchor_id)
         assert.is_not_nil(spider_id)
 
         test_utils.wait_until({
@@ -114,10 +86,10 @@ describe("blueprint-like placement scenarios", function()
             condition = function()
                 -- The primary purpose is "no crash"; also assert progress: blocker removed and ghost built.
                 if not tree.valid then
-                    local built = surface.find_entities_filtered({
+                    local built = ctx.surface.find_entities_filtered({
                         position = target_pos,
                         name = "stone-furnace",
-                        force = force,
+                        force = ctx.force,
                     })
                     if built and #built > 0 then
                         return true
@@ -171,9 +143,8 @@ describe("blueprint-like placement scenarios", function()
                 return
             end
 
-            local build_pos = { x = base_pos.x + 20, y = base_pos.y }
-            surface.request_to_generate_chunks(build_pos, 4)
-            surface.force_generate_chunk_requests()
+            local build_pos = { x = ctx.base_pos.x + 20, y = ctx.base_pos.y }
+            test_utils.ensure_chunks(ctx.surface, build_pos, 4)
 
             local blueprints = collect_blueprints(stack, 3)
             if not blueprints or #blueprints == 0 then
@@ -230,8 +201,8 @@ describe("blueprint-like placement scenarios", function()
 
                 local ok_build, built_or_err = pcall(function()
                     return bp.build_blueprint({
-                        surface = surface,
-                        force = force.name,
+                        surface = ctx.surface,
+                        force = ctx.force.name,
                         position = build_pos,
                         raise_built = false,
                         skip_fog_of_war = true,

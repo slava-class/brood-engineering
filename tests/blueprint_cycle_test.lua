@@ -5,6 +5,7 @@ local blueprint_test_utils = require("tests/blueprint_test_utils")
 local test_utils = require("tests/test_utils")
 
 describe("blueprint build/deconstruct cycle", function()
+    local ctx
     local surface
     local force
     local base_pos
@@ -12,10 +13,6 @@ describe("blueprint build/deconstruct cycle", function()
     local anchor_id
     local anchor_entity
     local anchor_data
-    local original_global_enabled
-    local original_idle_timeout_ticks
-    local original_no_work_recall_timeout_ticks
-    local imported_inv
 
     local report = blueprint_test_utils.report
     local collect_blueprints = blueprint_test_utils.collect_blueprints
@@ -425,62 +422,44 @@ describe("blueprint build/deconstruct cycle", function()
     end
 
     before_each(function()
-        surface = game.surfaces[1]
-        force = game.forces.player
-        base_pos = { x = 7600 + math.random(0, 50), y = math.random(-20, 20) }
-        created = {}
+        ctx = test_utils.setup_anchor_test({
+            base_pos_factory = function()
+                return { x = 7600 + math.random(0, 50), y = math.random(-20, 20) }
+            end,
+            ensure_chunks_radius = 2,
+            clean_radius = 120,
+            clear_radius = 25,
+            anchor_name = "character",
+            anchor_inventory_id = defines.inventory.character_main,
+            anchor_seed = {},
+            anchor_id_prefix = "test_anchor_blueprint_cycle",
+        })
 
-        test_utils.ensure_chunks(surface, base_pos, 2)
+        surface = ctx.surface
+        force = ctx.force
+        base_pos = ctx.base_pos
+        created = ctx.created
+        anchor_id = ctx.anchor_id
+        anchor_entity = ctx.anchor_entity
+        anchor_data = ctx.anchor_data
 
-        original_global_enabled = test_utils.disable_global_enabled()
-
-        original_idle_timeout_ticks = constants.idle_timeout_ticks
-        original_no_work_recall_timeout_ticks = constants.no_work_recall_timeout_ticks
+        local original_idle_timeout_ticks = constants.idle_timeout_ticks
+        local original_no_work_recall_timeout_ticks = constants.no_work_recall_timeout_ticks
         -- Disable automatic recalls during these end-to-end cycle tests so we can assert
         -- "return to anchor" explicitly without the mod recalling spiders mid-phase.
         constants.idle_timeout_ticks = 60 * 60 * 60
         constants.no_work_recall_timeout_ticks = 60 * 60 * 60
-
-        test_utils.reset_storage()
-
-        -- Ensure the area is deterministic and safe (no biters, no leftover ghosts/tasks).
-        local clean_radius = 120
-        local clean_area = {
-            { base_pos.x - clean_radius, base_pos.y - clean_radius },
-            { base_pos.x + clean_radius, base_pos.y + clean_radius },
-        }
-        test_utils.sanitize_area(surface, clean_area, {
-            force = force,
-        })
-
-        clear_area(base_pos, 25)
-
-        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
-            surface = surface,
-            force = force,
-            position = base_pos,
-            name = "character",
-            inventory_id = defines.inventory.character_main,
-            seed = {},
-            anchor_id_prefix = "test_anchor_blueprint_cycle",
-            track = track,
-        })
+        ctx.defer(function()
+            constants.idle_timeout_ticks = original_idle_timeout_ticks
+            constants.no_work_recall_timeout_ticks = original_no_work_recall_timeout_ticks
+        end)
 
         test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main).clear()
     end)
 
     after_each(function()
-        if imported_inv and imported_inv.valid then
-            imported_inv.destroy()
-        end
-        imported_inv = nil
-
-        test_utils.teardown_anchor(anchor_id, anchor_data)
-        test_utils.restore_global_enabled(original_global_enabled)
-        constants.idle_timeout_ticks = original_idle_timeout_ticks
-        constants.no_work_recall_timeout_ticks = original_no_work_recall_timeout_ticks
-
-        test_utils.destroy_tracked(created)
+        test_utils.teardown_anchor_test(ctx)
+        ctx = nil
     end)
 
     test(
@@ -499,7 +478,11 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_book: " .. tostring(err or "unknown"))
-            imported_inv = inv
+            ctx.defer(function()
+                if inv and inv.valid then
+                    inv.destroy()
+                end
+            end)
 
             local blueprints = collect_blueprints(stack, 3)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_book")
@@ -566,9 +549,9 @@ describe("blueprint build/deconstruct cycle", function()
                 )
             end
 
-            local function on_progress(ctx)
+            local function on_progress(pm_ctx)
                 return progress_line({
-                    phase = ctx.phase,
+                    phase = pm_ctx.phase,
                     idx = state.idx,
                     surface = surface,
                     area = state.bounds,
@@ -629,6 +612,7 @@ describe("blueprint build/deconstruct cycle", function()
                         return nil
                     end,
                     verify_inventory = function()
+                        test_utils.assert_no_ghosts(surface, state.bounds, force)
                         assert_area_empty_except_anchor_and_spiders(state.bounds)
                         assert_counts_equal(anchor_inv, state.snap)
                         assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
@@ -643,8 +627,8 @@ describe("blueprint build/deconstruct cycle", function()
                         return "building"
                     end,
                 },
-                on_timeout = function(ctx)
-                    return on_progress(ctx)
+                on_timeout = function(pm_ctx)
+                    return on_progress(pm_ctx)
                 end,
             })
         end
@@ -669,7 +653,11 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
-            imported_inv = inv
+            ctx.defer(function()
+                if inv and inv.valid then
+                    inv.destroy()
+                end
+            end)
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
@@ -705,9 +693,9 @@ describe("blueprint build/deconstruct cycle", function()
                 state.snap = snapshot_counts(anchor_inv, required or {})
             end
 
-            local function on_progress(ctx)
+            local function on_progress(pm_ctx)
                 return progress_line({
-                    phase = ctx.phase,
+                    phase = pm_ctx.phase,
                     surface = surface,
                     area = state.bounds,
                     force = force,
@@ -760,13 +748,14 @@ describe("blueprint build/deconstruct cycle", function()
                     end,
                     verify = function()
                         assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
+                        test_utils.assert_no_ghosts(surface, state.bounds, force)
                         assert_area_empty_except_anchor_and_spiders(state.bounds)
                         assert_counts_equal(anchor_inv, state.snap or {})
                         return true
                     end,
                 },
-                on_timeout = function(ctx)
-                    return on_progress(ctx)
+                on_timeout = function(pm_ctx)
+                    return on_progress(pm_ctx)
                 end,
             })
         end
@@ -791,7 +780,11 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
-            imported_inv = inv
+            ctx.defer(function()
+                if inv and inv.valid then
+                    inv.destroy()
+                end
+            end)
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
@@ -868,9 +861,9 @@ describe("blueprint build/deconstruct cycle", function()
                 end
             end
 
-            local function on_progress(ctx)
+            local function on_progress(pm_ctx)
                 return progress_line({
-                    phase = ctx.phase,
+                    phase = pm_ctx.phase,
                     surface = surface,
                     area = state.bounds,
                     force = force,
@@ -890,11 +883,11 @@ describe("blueprint build/deconstruct cycle", function()
                 state = state,
                 initial = "building_missing_items",
                 phases = {
-                    building_missing_items = function(ctx)
-                        if ctx.tick > state.missing_deadline then
+                    building_missing_items = function(pm_ctx)
+                        if pm_ctx.tick > state.missing_deadline then
                             error("timed out waiting for ghosts to remain with missing items")
                         end
-                        if ctx.tick < state.missing_min_tick then
+                        if pm_ctx.tick < state.missing_min_tick then
                             return nil
                         end
 
@@ -967,13 +960,14 @@ describe("blueprint build/deconstruct cycle", function()
                     end,
                     verify = function()
                         assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
+                        test_utils.assert_no_ghosts(surface, state.bounds, force)
                         assert_area_empty_except_anchor_and_spiders(state.bounds)
                         assert_counts_equal(anchor_inv, state.snap or {})
                         return true
                     end,
                 },
-                on_timeout = function(ctx)
-                    return on_progress(ctx)
+                on_timeout = function(pm_ctx)
+                    return on_progress(pm_ctx)
                 end,
             })
         end

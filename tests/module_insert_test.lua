@@ -29,15 +29,15 @@ describe("module insertion", function()
     end)
 
     test("inserts modules into an assembling machine (3x3)", function()
-        local target_pos = { x = ctx.base_pos.x + 18, y = ctx.base_pos.y }
+        local target_offset = { x = 18, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 12)
 
-        local machine = ctx.track(ctx.surface.create_entity({
+        local machine = ctx.spawn({
             name = "assembling-machine-2",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.north,
-            force = ctx.force,
-        }))
+        })
         assert.is_true(machine and machine.valid)
 
         local module_inventory = machine.get_module_inventory()
@@ -48,10 +48,7 @@ describe("module insertion", function()
         local supplied = 50
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        local proxy = ctx.track(ctx.surface.create_entity({
-            name = "item-request-proxy",
-            position = machine.position,
-            force = ctx.force,
+        local proxy = ctx.spawn_item_request_proxy({
             target = machine,
             modules = {
                 {
@@ -64,7 +61,7 @@ describe("module insertion", function()
                     },
                 },
             },
-        }))
+        })
         assert.is_true(proxy and proxy.valid)
 
         test_utils.run_main_loop()
@@ -94,15 +91,15 @@ describe("module insertion", function()
     end)
 
     test("inserts modules into an oil refinery (5x5)", function()
-        local target_pos = { x = ctx.base_pos.x + 34, y = ctx.base_pos.y }
+        local target_offset = { x = 34, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 15)
 
-        local refinery = ctx.track(ctx.surface.create_entity({
+        local refinery = ctx.spawn({
             name = "oil-refinery",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.north,
-            force = ctx.force,
-        }))
+        })
         assert.is_true(refinery and refinery.valid)
 
         local module_inventory = refinery.get_module_inventory()
@@ -113,10 +110,7 @@ describe("module insertion", function()
         local supplied = 60
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        local proxy = ctx.track(ctx.surface.create_entity({
-            name = "item-request-proxy",
-            position = refinery.position,
-            force = ctx.force,
+        local proxy = ctx.spawn_item_request_proxy({
             target = refinery,
             modules = {
                 {
@@ -130,7 +124,7 @@ describe("module insertion", function()
                     },
                 },
             },
-        }))
+        })
         assert.is_true(proxy and proxy.valid)
 
         test_utils.run_main_loop()
@@ -160,15 +154,15 @@ describe("module insertion", function()
     end)
 
     test("swaps a wrong module using removal_plan then clears proxy", function()
-        local target_pos = { x = ctx.base_pos.x + 52, y = ctx.base_pos.y }
+        local target_offset = { x = 52, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 12)
 
-        local machine = ctx.track(ctx.surface.create_entity({
+        local machine = ctx.spawn({
             name = "assembling-machine-2",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.north,
-            force = ctx.force,
-        }))
+        })
         assert.is_true(machine and machine.valid)
 
         local module_inventory = machine.get_module_inventory()
@@ -179,10 +173,7 @@ describe("module insertion", function()
         local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "speed-module", count = 10, quality = "normal" })
 
-        local proxy = ctx.track(ctx.surface.create_entity({
-            name = "item-request-proxy",
-            position = machine.position,
-            force = ctx.force,
+        local proxy = ctx.spawn_item_request_proxy({
             target = machine,
             modules = {
                 {
@@ -204,7 +195,7 @@ describe("module insertion", function()
                     },
                 },
             },
-        }))
+        })
         assert.is_true(proxy and proxy.valid)
 
         test_utils.run_main_loop()

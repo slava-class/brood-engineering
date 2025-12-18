@@ -3,62 +3,39 @@ local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
 describe("entity deconstruction", function()
-    local surface
-    local force
-    local base_pos
-    local created = {}
-    local anchor_id
-    local anchor_entity
-    local anchor_data
-    local original_global_enabled
-
-    local function track(entity)
-        return test_utils.track(created, entity)
-    end
+    local ctx
 
     local function clear_area(position, radius)
-        test_utils.clear_area(surface, position, radius, { anchor_entity = anchor_entity, skip_spiders = true })
+        test_utils.clear_area(ctx.surface, position, radius, { anchor_entity = ctx.anchor_entity, skip_spiders = true })
     end
 
     before_each(function()
-        surface = game.surfaces[1]
-        force = game.forces.player
-        base_pos = { x = 9500 + math.random(0, 50), y = math.random(-20, 20) }
-        created = {}
-
-        test_utils.ensure_chunks(surface, base_pos, 1)
-
-        original_global_enabled = test_utils.disable_global_enabled()
-        test_utils.reset_storage()
-
-        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
-            surface = surface,
-            force = force,
-            position = base_pos,
-            name = "wooden-chest",
-            inventory_id = defines.inventory.chest,
-            seed = {},
+        ctx = test_utils.setup_anchor_test({
+            base_pos = { x = 9500 + math.random(0, 50), y = math.random(-20, 20) },
+            ensure_chunks_radius = 1,
+            clean_radius = 60,
+            clear_radius = 16,
+            anchor_name = "wooden-chest",
+            anchor_inventory_id = defines.inventory.chest,
+            anchor_seed = {},
             anchor_id_prefix = "test_anchor_entity_decon",
-            track = track,
         })
     end)
 
     after_each(function()
-        test_utils.teardown_anchor(anchor_id, anchor_data)
-        test_utils.restore_global_enabled(original_global_enabled)
-        test_utils.destroy_tracked(created)
+        test_utils.teardown_anchor_test(ctx)
     end)
 
     test("mines an entity and transfers its inventories to the anchor inventory", function()
-        local target_pos = { x = base_pos.x + 12, y = base_pos.y }
+        local target_offset = { x = 12, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 10)
 
-        local furnace = track(surface.create_entity({
+        local furnace = ctx.spawn({
             name = "stone-furnace",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.north,
-            force = force,
-        }))
+        })
         assert.is_true(furnace and furnace.valid)
 
         local source = furnace.get_inventory(defines.inventory.crafter_input)
@@ -69,11 +46,11 @@ describe("entity deconstruction", function()
         source.insert({ name = "iron-ore", count = 10, quality = "normal" })
         fuel.insert({ name = "coal", count = 5, quality = "normal" })
 
-        furnace.order_deconstruction(force)
+        furnace.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(furnace, inventory))
-        assert.is_true(deconstruct_entity.execute({}, furnace, inventory, anchor_data))
+        assert.is_true(deconstruct_entity.execute({}, furnace, inventory, ctx.anchor_data))
         assert.is_true(not furnace.valid)
         assert.is_true(inventory.get_item_count({ name = "stone-furnace", quality = "normal" }) >= 1)
         assert.is_true(inventory.get_item_count({ name = "iron-ore", quality = "normal" }) >= 10)
@@ -81,48 +58,48 @@ describe("entity deconstruction", function()
     end)
 
     test("collects nearby item-entities when mining a belt", function()
-        local target_pos = { x = base_pos.x + 18, y = base_pos.y }
+        local target_offset = { x = 18, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 10)
 
-        local belt = track(surface.create_entity({
+        local belt = ctx.spawn({
             name = "transport-belt",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.east,
-            force = force,
-        }))
+        })
         assert.is_true(belt and belt.valid)
 
         local line = belt.get_transport_line(1)
         assert.is_true(line and line.valid)
 
         local inserted_count = 2
-        surface.spill_item_stack({
+        ctx.surface.spill_item_stack({
             position = target_pos,
             stack = { name = "iron-plate", count = inserted_count, quality = "normal" },
             allow_belts = false,
             max_radius = 0,
         })
 
-        belt.order_deconstruction(force)
+        belt.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
-        assert.is_true(deconstruct_entity.execute({}, belt, inventory, anchor_data))
+        assert.is_true(deconstruct_entity.execute({}, belt, inventory, ctx.anchor_data))
         assert.is_true(not belt.valid)
         assert.is_true(inventory.get_item_count({ name = "transport-belt", quality = "normal" }) >= 1)
         assert.is_true(inventory.get_item_count({ name = "iron-plate", quality = "normal" }) >= inserted_count)
     end)
 
     test("collects items from belt transport lines when mining", function()
-        local target_pos = { x = base_pos.x + 24, y = base_pos.y }
+        local target_offset = { x = 24, y = 0 }
+        local target_pos = ctx.pos(target_offset)
         clear_area(target_pos, 10)
 
-        local belt = track(surface.create_entity({
+        local belt = ctx.spawn({
             name = "transport-belt",
-            position = target_pos,
+            offset = target_offset,
             direction = defines.direction.east,
-            force = force,
-        }))
+        })
         assert.is_true(belt and belt.valid)
 
         local line = belt.get_transport_line(1)
@@ -191,7 +168,7 @@ describe("entity deconstruction", function()
         local contents = line.get_contents()
         local on_belt = sum_named_counts(contents, "iron-plate")
         if on_belt < desired_count then
-            surface.spill_item_stack({
+            ctx.surface.spill_item_stack({
                 position = target_pos,
                 stack = { name = "iron-plate", count = desired_count, quality = "normal" },
                 allow_belts = true,
@@ -203,11 +180,11 @@ describe("entity deconstruction", function()
 
         assert.is_true(on_belt > 0)
 
-        belt.order_deconstruction(force)
+        belt.order_deconstruction(ctx.force)
 
-        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
-        assert.is_true(deconstruct_entity.execute({}, belt, inventory, anchor_data))
+        assert.is_true(deconstruct_entity.execute({}, belt, inventory, ctx.anchor_data))
         assert.is_true(not belt.valid)
         assert.is_true(inventory.get_item_count({ name = "transport-belt", quality = "normal" }) >= 1)
         assert.is_true(inventory.get_item_count({ name = "iron-plate", quality = "normal" }) >= on_belt)

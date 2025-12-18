@@ -3,86 +3,54 @@ local spider = require("scripts/spider")
 local test_utils = require("tests/test_utils")
 
 describe("idle recall after finishing work", function()
-    local surface
-    local force
-    local base_pos
-    local created = {}
-    local anchor_id
-    local anchor_entity
-    local anchor_data
+    local ctx
     local task_entity
-    local original_global_enabled
-
-    local function track(entity)
-        return test_utils.track(created, entity)
-    end
 
     before_each(function()
-        surface = game.surfaces[1]
-        force = game.forces.player
-        base_pos = { x = 4000 + math.random(0, 50), y = math.random(-20, 20) }
-        created = {}
-
-        test_utils.ensure_chunks(surface, base_pos, 2)
-
-        -- Keep the main loop disabled during setup to avoid races with task creation.
-        original_global_enabled = test_utils.disable_global_enabled()
-
-        -- Fully reset mod state for isolation.
-        test_utils.reset_storage()
-
-        -- Clean any preexisting work in the area to keep this test isolated.
-        local clean_radius = 120
-        local clean_area = {
-            { base_pos.x - clean_radius, base_pos.y - clean_radius },
-            { base_pos.x + clean_radius, base_pos.y + clean_radius },
-        }
-        test_utils.sanitize_area(surface, clean_area, {
-            force = force,
+        ctx = test_utils.setup_anchor_test({
+            base_pos = { x = 4000 + math.random(0, 50), y = math.random(-20, 20) },
+            ensure_chunks_radius = 2,
+            clean_radius = 120,
+            anchor_name = "wooden-chest",
+            anchor_inventory_id = defines.inventory.chest,
+            anchor_seed = { { name = "spiderling", count = 1 } },
+            anchor_id_prefix = "test_anchor_idle",
         })
 
         -- Ensure the immediate area around the anchor/task is clear and traversable
         -- so spider movement doesn't depend on map generation randomness.
-        test_utils.clear_area(surface, base_pos, 25)
+        test_utils.clear_area(ctx.surface, ctx.base_pos, 25, {
+            anchor_entity = ctx.anchor_entity,
+            skip_spiders = true,
+        })
 
-        local task_pos = { x = base_pos.x + 2, y = base_pos.y }
-        test_utils.clear_area(surface, task_pos, 15)
-
-        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
-            surface = surface,
-            force = force,
-            position = base_pos,
-            name = "wooden-chest",
-            inventory_id = defines.inventory.chest,
-            seed = { { name = "spiderling", count = 1 } },
-            anchor_id_prefix = "test_anchor_idle",
-            track = track,
+        local task_pos = { x = ctx.base_pos.x + 2, y = ctx.base_pos.y }
+        test_utils.clear_area(ctx.surface, task_pos, 15, {
+            anchor_entity = ctx.anchor_entity,
+            skip_spiders = true,
         })
 
         -- A single nearby deconstruction task to trigger deploy + full task execution.
-        task_entity = track(surface.create_entity({
+        task_entity = ctx.spawn({
             name = "stone-furnace",
             position = task_pos,
-            force = force,
-        }))
-        task_entity.order_deconstruction(force)
+        })
+        task_entity.order_deconstruction(ctx.force)
         assert.is_true(task_entity.to_be_deconstructed())
     end)
 
     after_each(function()
-        test_utils.teardown_anchor(anchor_id, anchor_data)
-        test_utils.restore_global_enabled(original_global_enabled)
-        test_utils.destroy_tracked(created)
+        test_utils.teardown_anchor_test(ctx)
     end)
 
     test("deploys, completes nearby task, then recalls after ~2s of no work", function()
-        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
 
         -- Keep the scheduled main loop disabled and drive it manually on the
         -- same cadence as on_nth_tick for determinism.
         storage.global_enabled = false
 
-        local spider_id = spider.deploy(anchor_id)
+        local spider_id = spider.deploy(ctx.anchor_id)
         assert.is_not_nil(spider_id)
 
         test_utils.phase_machine({
@@ -101,30 +69,30 @@ describe("idle recall after finishing work", function()
             },
             phases = {
                 waiting_assigned = function()
-                    local spider_data = anchor_data.spiders[spider_id]
+                    local spider_data = test_utils.find_spider_data(ctx, spider_id)
                     if spider_data and spider_data.status == "moving_to_task" then
                         return "waiting_completed"
                     end
                     return nil
                 end,
-                waiting_completed = function(ctx)
-                    local tick = ctx.tick
-                    local spider_data = anchor_data.spiders[spider_id]
+                waiting_completed = function(pm_ctx)
+                    local tick = pm_ctx.tick
+                    local spider_data = test_utils.find_spider_data(ctx, spider_id)
 
                     if spider_data and spider_data.status == "deployed_idle" and not spider_data.task then
                         assert.is_false(task_entity.valid)
-                        ctx.state.idle_since_tick = tick
+                        pm_ctx.state.idle_since_tick = tick
 
                         -- Nudge the anchor slightly; spider should keep following while idle.
-                        anchor_entity.teleport({ x = base_pos.x + 1, y = base_pos.y })
+                        ctx.anchor_entity.teleport({ x = ctx.base_pos.x + 1, y = ctx.base_pos.y })
                         return "waiting_recall"
                     end
 
                     return nil
                 end,
-                waiting_recall = function(ctx)
-                    local tick = ctx.tick
-                    local spider_data = anchor_data.spiders[spider_id]
+                waiting_recall = function(pm_ctx)
+                    local tick = pm_ctx.tick
+                    local spider_data = test_utils.find_spider_data(ctx, spider_id)
 
                     if not spider_data then
                         return "verify"
@@ -133,13 +101,13 @@ describe("idle recall after finishing work", function()
                     if spider_data.status == "deployed_idle" and spider_data.entity and spider_data.entity.valid then
                         local ft = spider_data.entity.follow_target
                         if ft and ft.valid then
-                            assert.are_equal(anchor_entity.unit_number, ft.unit_number)
+                            assert.are_equal(ctx.anchor_entity.unit_number, ft.unit_number)
                         end
                     end
 
                     if
-                        ctx.state.idle_since_tick
-                        and tick - ctx.state.idle_since_tick
+                        pm_ctx.state.idle_since_tick
+                        and tick - pm_ctx.state.idle_since_tick
                             > (constants.no_work_recall_timeout_ticks + constants.main_loop_interval * 10)
                     then
                         error("Spider was not recalled within expected no-work window")
@@ -152,12 +120,12 @@ describe("idle recall after finishing work", function()
                     return true
                 end,
             },
-            on_timeout = function(ctx)
-                local spider_data = anchor_data and anchor_data.spiders and anchor_data.spiders[spider_id] or nil
+            on_timeout = function(pm_ctx)
+                local spider_data = test_utils.find_spider_data(ctx, spider_id)
                 local status = spider_data and spider_data.status or "nil"
                 local task_id = spider_data and spider_data.task and spider_data.task.id or "nil"
                 return ("phase=%s status=%s task=%s"):format(
-                    tostring(ctx.state.phase),
+                    tostring(pm_ctx.phase),
                     tostring(status),
                     tostring(task_id)
                 )

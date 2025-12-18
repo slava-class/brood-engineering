@@ -60,6 +60,82 @@ function M.track(created, entity)
     return entity
 end
 
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param force LuaForce|string|nil
+function M.assert_no_entity_ghosts(surface, area, force)
+    local filter = { area = area, type = "entity-ghost" }
+    if force ~= nil then
+        filter.force = force
+    end
+    local ghosts = surface.find_entities_filtered(filter)
+    if not ghosts or #ghosts == 0 then
+        return
+    end
+
+    local preview = {}
+    for i = 1, math.min(#ghosts, 6) do
+        local e = ghosts[i]
+        local inner = nil
+        pcall(function()
+            inner = e.ghost_name
+        end)
+        if not inner then
+            pcall(function()
+                inner = e.inner_name
+            end)
+        end
+        preview[#preview + 1] = ("%s @ %.1f,%.1f"):format(
+            tostring(inner or "?"),
+            e.position and e.position.x or 0,
+            e.position and e.position.y or 0
+        )
+    end
+    error(("expected no entity ghosts, found %d: %s"):format(#ghosts, table.concat(preview, ", ")))
+end
+
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param force LuaForce|string|nil
+function M.assert_no_tile_ghosts(surface, area, force)
+    local filter = { area = area, type = "tile-ghost" }
+    if force ~= nil then
+        filter.force = force
+    end
+    local ghosts = surface.find_entities_filtered(filter)
+    if not ghosts or #ghosts == 0 then
+        return
+    end
+
+    local preview = {}
+    for i = 1, math.min(#ghosts, 6) do
+        local e = ghosts[i]
+        local inner = nil
+        pcall(function()
+            inner = e.ghost_name
+        end)
+        if not inner then
+            pcall(function()
+                inner = e.inner_name
+            end)
+        end
+        preview[#preview + 1] = ("%s @ %.1f,%.1f"):format(
+            tostring(inner or "?"),
+            e.position and e.position.x or 0,
+            e.position and e.position.y or 0
+        )
+    end
+    error(("expected no tile ghosts, found %d: %s"):format(#ghosts, table.concat(preview, ", ")))
+end
+
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param force LuaForce|string|nil
+function M.assert_no_ghosts(surface, area, force)
+    M.assert_no_entity_ghosts(surface, area, force)
+    M.assert_no_tile_ghosts(surface, area, force)
+end
+
 ---@param created LuaEntity[]
 function M.destroy_tracked(created)
     for _, e in ipairs(created or {}) do
@@ -208,6 +284,13 @@ end
 ---@field base_pos MapPosition
 ---@field created LuaEntity[]
 ---@field track fun(entity: LuaEntity): LuaEntity?
+---@field cleanup fun()[]
+---@field defer fun(fn: fun()): fun()
+---@field spawn fun(spec: table): LuaEntity
+---@field pos fun(offset: MapPosition): MapPosition
+---@field spawn_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, direction?: defines.direction, expires?: boolean, force?: LuaForce|string }): LuaEntity
+---@field spawn_tile_ghost fun(spec: { inner_name: string, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string }): LuaEntity
+---@field spawn_item_request_proxy fun(spec: { target: LuaEntity, position?: MapPosition, offset?: MapPosition, force?: LuaForce|string, modules?: BlueprintInsertPlan[]?, insert_plan?: BlueprintInsertPlan[]?, removal_plan?: BlueprintInsertPlan[]? }): LuaEntity
 ---@field anchor_id string
 ---@field anchor_entity LuaEntity
 ---@field anchor_data table
@@ -235,12 +318,16 @@ function M.setup_anchor_test(opts)
     assert(type(base_pos) == "table" and type(base_pos.x) == "number" and type(base_pos.y) == "number")
 
     local created = {}
+    local cleanup = {}
     local ctx = {
         surface = surface,
         force = force,
         base_pos = base_pos,
         created = created,
         track = nil,
+        cleanup = cleanup,
+        defer = nil,
+        spawn = nil,
         anchor_id = nil,
         anchor_entity = nil,
         anchor_data = nil,
@@ -248,6 +335,75 @@ function M.setup_anchor_test(opts)
     }
     ctx.track = function(entity)
         return M.track(created, entity)
+    end
+    ctx.defer = function(fn)
+        assert(type(fn) == "function", "ctx.defer expects a function")
+        cleanup[#cleanup + 1] = fn
+        return fn
+    end
+    ctx.pos = function(offset)
+        assert(type(offset) == "table", "ctx.pos expects an offset table")
+        return { x = ctx.base_pos.x + (offset.x or 0), y = ctx.base_pos.y + (offset.y or 0) }
+    end
+    ctx.spawn = function(spec)
+        assert(type(spec) == "table", "ctx.spawn expects a spec table")
+        local create_def = {}
+        for k, v in pairs(spec) do
+            create_def[k] = v
+        end
+
+        create_def.force = create_def.force or ctx.force
+        create_def.surface = nil
+
+        if create_def.position == nil and type(spec.offset) == "table" then
+            create_def.position = {
+                x = ctx.base_pos.x + (spec.offset.x or 0),
+                y = ctx.base_pos.y + (spec.offset.y or 0),
+            }
+        end
+        create_def.offset = nil
+
+        local entity = ctx.surface.create_entity(create_def)
+        assert(entity and entity.valid, "ctx.spawn failed to create entity")
+        return ctx.track(entity) or entity
+    end
+    ctx.spawn_ghost = function(spec)
+        assert(type(spec) == "table", "ctx.spawn_ghost expects a spec table")
+        assert(type(spec.inner_name) == "string" and spec.inner_name ~= "", "ctx.spawn_ghost requires inner_name")
+        return ctx.spawn({
+            name = "entity-ghost",
+            inner_name = spec.inner_name,
+            position = spec.position,
+            offset = spec.offset,
+            direction = spec.direction or defines.direction.north,
+            expires = spec.expires == nil and false or spec.expires,
+            force = spec.force,
+        })
+    end
+    ctx.spawn_tile_ghost = function(spec)
+        assert(type(spec) == "table", "ctx.spawn_tile_ghost expects a spec table")
+        assert(type(spec.inner_name) == "string" and spec.inner_name ~= "", "ctx.spawn_tile_ghost requires inner_name")
+        return ctx.spawn({
+            name = "tile-ghost",
+            inner_name = spec.inner_name,
+            position = spec.position,
+            offset = spec.offset,
+            force = spec.force,
+        })
+    end
+    ctx.spawn_item_request_proxy = function(spec)
+        assert(type(spec) == "table", "ctx.spawn_item_request_proxy expects a spec table")
+        assert(spec.target and spec.target.valid, "ctx.spawn_item_request_proxy requires a valid target")
+        return ctx.spawn({
+            name = "item-request-proxy",
+            position = spec.position or (spec.target and spec.target.position),
+            offset = spec.offset,
+            force = spec.force,
+            target = spec.target,
+            modules = spec.modules,
+            insert_plan = spec.insert_plan,
+            removal_plan = spec.removal_plan,
+        })
     end
 
     ctx.original_global_enabled = M.disable_global_enabled()
@@ -287,9 +443,59 @@ function M.teardown_anchor_test(ctx)
     if not ctx then
         return
     end
+    if ctx.cleanup then
+        for i = #ctx.cleanup, 1, -1 do
+            pcall(ctx.cleanup[i])
+        end
+    end
     M.teardown_anchor(ctx.anchor_id, ctx.anchor_data)
     M.restore_global_enabled(ctx.original_global_enabled)
     M.destroy_tracked(ctx.created)
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@return table|nil anchor_data
+function M.find_anchor_data(ctx)
+    if not (ctx and ctx.anchor_id and storage.anchors) then
+        return nil
+    end
+    return storage.anchors[ctx.anchor_id]
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@return table anchor_data
+function M.get_anchor_data(ctx)
+    local ad = M.find_anchor_data(ctx)
+    assert(ad ~= nil, "anchor missing from storage")
+    return ad
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@param spider_id string
+---@return table|nil spider_data
+function M.find_spider_data(ctx, spider_id)
+    local ad = M.find_anchor_data(ctx)
+    if not (ad and ad.spiders) then
+        return nil
+    end
+    return ad.spiders[spider_id]
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@param spider_id string
+---@return table spider_data
+function M.get_spider_data(ctx, spider_id)
+    local sd = M.find_spider_data(ctx, spider_id)
+    assert(sd ~= nil, "spider missing from anchor data: " .. tostring(spider_id))
+    return sd
+end
+
+---@param ctx TestUtilsAnchorTestCtx
+---@param spider_id string
+---@param expected_status string
+function M.assert_spider_status(ctx, spider_id, expected_status)
+    local sd = M.get_spider_data(ctx, spider_id)
+    assert.are_equal(expected_status, sd.status)
 end
 
 ---@param anchor_id string?
