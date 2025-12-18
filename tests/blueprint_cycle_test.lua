@@ -15,10 +15,12 @@ describe("blueprint build/deconstruct cycle", function()
     local original_global_enabled
     local original_idle_timeout_ticks
     local original_no_work_recall_timeout_ticks
+    local imported_inv
 
     local report = blueprint_test_utils.report
     local collect_blueprints = blueprint_test_utils.collect_blueprints
     local import_any_blueprint_item = blueprint_test_utils.import_any_blueprint_item
+    local progress_line = blueprint_test_utils.progress_line
 
     local function track(entity)
         return test_utils.track(created, entity)
@@ -430,46 +432,9 @@ describe("blueprint build/deconstruct cycle", function()
             { base_pos.x - clean_radius, base_pos.y - clean_radius },
             { base_pos.x + clean_radius, base_pos.y + clean_radius },
         }
-        for _, e in
-            pairs(surface.find_entities_filtered({
-                area = clean_area,
-                type = { "entity-ghost", "tile-ghost", "item-request-proxy" },
-            }))
-        do
-            if e and e.valid then
-                e.destroy({ raise_destroyed = false })
-            end
-        end
-        for _, e in
-            pairs(surface.find_entities_filtered({
-                area = clean_area,
-                to_be_deconstructed = true,
-            }))
-        do
-            if e and e.valid and e.cancel_deconstruction then
-                e.cancel_deconstruction(force)
-            end
-        end
-        for _, e in
-            pairs(surface.find_entities_filtered({
-                area = clean_area,
-                to_be_upgraded = true,
-            }))
-        do
-            if e and e.valid and e.cancel_upgrade then
-                e.cancel_upgrade(force)
-            end
-        end
-        for _, e in
-            pairs(surface.find_entities_filtered({
-                area = clean_area,
-                force = "enemy",
-            }))
-        do
-            if e and e.valid then
-                e.destroy({ raise_destroyed = false })
-            end
-        end
+        test_utils.sanitize_area(surface, clean_area, {
+            force = force,
+        })
 
         clear_area(base_pos, 25)
 
@@ -491,6 +456,11 @@ describe("blueprint build/deconstruct cycle", function()
     end)
 
     after_each(function()
+        if imported_inv and imported_inv.valid then
+            imported_inv.destroy()
+        end
+        imported_inv = nil
+
         test_utils.teardown_anchor(anchor_id, anchor_data)
         test_utils.restore_global_enabled(original_global_enabled)
         constants.idle_timeout_ticks = original_idle_timeout_ticks
@@ -515,6 +485,7 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_book: " .. tostring(err or "unknown"))
+            imported_inv = inv
 
             local blueprints = collect_blueprints(stack, 3)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_book")
@@ -537,15 +508,17 @@ describe("blueprint build/deconstruct cycle", function()
             -- Build far enough away that we can clear the build area without touching the anchor/spiders.
             local build_origin = { x = base_pos.x + 80, y = base_pos.y }
 
-            local ticks_per_blueprint = 60 * 45
-            async(ticks_per_blueprint * (#blueprints + 1))
-            local phase = "start"
-            local idx = 1
-            local bounds = nil
-            local required = nil
-            local snap = nil
-            local tile_targets = {}
             local expected_tile_after_deconstruct = "grass-1"
+            local ticks_per_blueprint = 60 * 45
+            local state = {
+                idx = 1,
+                blueprints = blueprints,
+                bounds = nil,
+                required = nil,
+                snap = nil,
+                tile_targets = {},
+                expected_tile_after_deconstruct = expected_tile_after_deconstruct,
+            }
 
             local function start_blueprint(bp_info)
                 clear_area(build_origin, 40)
@@ -558,11 +531,11 @@ describe("blueprint build/deconstruct cycle", function()
 
                 local created_ghosts, req, area, targets = place_ghosts_and_requirements(entities, tiles, build_origin)
                 assert.is_true(created_ghosts and #created_ghosts > 0, "no ghosts created from blueprint")
-                bounds = area
-                required = req
-                tile_targets = targets or {}
+                state.bounds = area
+                state.required = req
+                state.tile_targets = targets or {}
 
-                for key, count in pairs(required) do
+                for key, count in pairs(state.required) do
                     local name, quality = key:match("^(.-)\x1f(.*)$")
                     local stack_def = { name = name, count = count, quality = quality }
                     local inserted = anchor_inv.insert(stack_def)
@@ -577,14 +550,14 @@ describe("blueprint build/deconstruct cycle", function()
                     )
                 end
 
-                snap = snapshot_counts(anchor_inv, required)
+                state.snap = snapshot_counts(anchor_inv, state.required)
                 report(
                     ("[Brood][BlueprintCycle] started #%d path=%s required_items=%d"):format(
-                        idx,
+                        state.idx,
                         tostring(bp_info.path),
                         (function()
                             local c = 0
-                            for _ in pairs(required) do
+                            for _ in pairs(state.required) do
                                 c = c + 1
                             end
                             return c
@@ -593,108 +566,87 @@ describe("blueprint build/deconstruct cycle", function()
                 )
             end
 
-            start_blueprint(blueprints[idx])
-            phase = "building"
+            local function on_progress(ctx)
+                return progress_line({
+                    phase = ctx.phase,
+                    idx = state.idx,
+                    surface = surface,
+                    area = state.bounds,
+                    force = force,
+                    anchor_id = anchor_id,
+                    anchor_entity = anchor_entity,
+                    spider_ids = spider_ids,
+                })
+            end
 
-            on_tick(function()
-                test_utils.run_main_loop_periodic(constants.main_loop_interval)
-                if (game.tick % 600) == 0 then
-                    local entity_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })
-                    local tile_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "tile-ghost", force = force })
-                    local status = {}
-                    local ad = storage.anchors and storage.anchors[anchor_id] or nil
-                    local ad_spider_count = ad
-                            and ad.spiders
-                            and (function()
-                                local n = 0
-                                for _ in pairs(ad.spiders) do
-                                    n = n + 1
-                                end
-                                return n
-                            end)()
-                        or 0
-                    for _, sid in ipairs(spider_ids) do
-                        local sd = ad and ad.spiders and ad.spiders[sid] or nil
-                        status[#status + 1] = ("%s=%s"):format(tostring(sid), sd and sd.status or "nil")
-                    end
-                    report(
-                        ("[Brood][BlueprintCycle] phase=%s idx=%d anchor_valid=%s anchor_in_storage=%s spider_count=%d ghosts=%d tile_ghosts=%d spiders={%s}"):format(
-                            tostring(phase),
-                            idx,
-                            tostring(anchor_entity and anchor_entity.valid),
-                            tostring(ad ~= nil),
-                            ad_spider_count,
-                            #(entity_ghosts or {}),
-                            #(tile_ghosts or {}),
-                            table.concat(status, ",")
-                        )
-                    )
-                end
+            start_blueprint(state.blueprints[state.idx])
 
-                if phase == "building" then
-                    if not any_build_ghosts(bounds) then
-                        assert.is_true(
-                            count_built_entities(bounds) > 0,
-                            "no entities built (ghosts cleared unexpectedly)"
-                        )
-                        if tile_targets and #tile_targets > 0 then
-                            assert.is_true(all_tiles_match_targets(tile_targets))
+            test_utils.phase_machine({
+                timeout_ticks = ticks_per_blueprint * (#blueprints + 1),
+                description = "brood_test_book cycle",
+                report = report,
+                main_loop_interval = constants.main_loop_interval,
+                progress_interval = 600,
+                on_progress = on_progress,
+                state = state,
+                initial = "building",
+                phases = {
+                    building = function()
+                        if not any_build_ghosts(state.bounds) then
+                            assert.is_true(
+                                count_built_entities(state.bounds) > 0,
+                                "no entities built (ghosts cleared unexpectedly)"
+                            )
+                            if state.tile_targets and #state.tile_targets > 0 then
+                                assert.is_true(all_tiles_match_targets(state.tile_targets))
+                            end
+                            return "wait_idle_after_build"
                         end
-                        phase = "wait_idle_after_build"
-                    end
-                    return true
-                end
+                        return nil
+                    end,
+                    wait_idle_after_build = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            order_deconstruct_everything(state.bounds)
+                            order_deconstruct_tiles(state.tile_targets)
+                            return "deconstructing"
+                        end
+                        return nil
+                    end,
+                    deconstructing = function()
+                        if
+                            (not any_deconstruct_targets(state.bounds))
+                            and (not any_marked_tiles(state.bounds))
+                            and (not any_tile_proxies(state.bounds))
+                        then
+                            return "wait_idle_after_deconstruct"
+                        end
+                        return nil
+                    end,
+                    wait_idle_after_deconstruct = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            return "verify_inventory"
+                        end
+                        return nil
+                    end,
+                    verify_inventory = function()
+                        assert_area_empty_except_anchor_and_spiders(state.bounds)
+                        assert_counts_equal(anchor_inv, state.snap)
+                        assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
 
-                if phase == "wait_idle_after_build" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        order_deconstruct_everything(bounds)
-                        order_deconstruct_tiles(tile_targets)
-                        phase = "deconstructing"
-                    end
-                    return true
-                end
+                        anchor_inv.clear()
+                        state.idx = (state.idx or 0) + 1
+                        if state.idx > #state.blueprints then
+                            return true
+                        end
 
-                if phase == "deconstructing" then
-                    if
-                        (not any_deconstruct_targets(bounds))
-                        and (not any_marked_tiles(bounds))
-                        and (not any_tile_proxies(bounds))
-                    then
-                        phase = "wait_idle_after_deconstruct"
-                    end
-                    return true
-                end
-
-                if phase == "wait_idle_after_deconstruct" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        phase = "verify_inventory"
-                    end
-                    return true
-                end
-
-                if phase == "verify_inventory" then
-                    assert_area_empty_except_anchor_and_spiders(bounds)
-                    assert_counts_equal(anchor_inv, snap)
-                    assert.is_true(all_tiles_are(tile_targets, expected_tile_after_deconstruct))
-
-                    -- Reset for next blueprint in the book.
-                    anchor_inv.clear()
-                    idx = idx + 1
-                    if idx > #blueprints then
-                        inv.destroy()
-                        done()
-                        return false
-                    end
-
-                    start_blueprint(blueprints[idx])
-                    phase = "building"
-                    return true
-                end
-
-                return true
-            end)
+                        start_blueprint(state.blueprints[state.idx])
+                        return "building"
+                    end,
+                },
+                on_timeout = function(ctx)
+                    return on_progress(ctx)
+                end,
+            })
         end
     )
 
@@ -717,6 +669,7 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
+            imported_inv = inv
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
@@ -738,12 +691,13 @@ describe("blueprint build/deconstruct cycle", function()
             -- Build far enough away that we can clear the build area without touching the anchor/spiders.
             local build_origin = { x = base_pos.x + 80, y = base_pos.y }
 
-            async(60 * 60)
-            local phase = "building"
-            local bounds = nil
-            local snap = nil
-            local tile_targets = {}
             local expected_tile_after_deconstruct = "grass-1"
+            local state = {
+                bounds = nil,
+                snap = nil,
+                tile_targets = {},
+                expected_tile_after_deconstruct = expected_tile_after_deconstruct,
+            }
 
             do
                 clear_area(build_origin, 20)
@@ -753,8 +707,8 @@ describe("blueprint build/deconstruct cycle", function()
                 local entities = get_entities(bp) or {}
                 local tiles = get_tiles(bp) or {}
                 local _, required, area, targets = place_ghosts_and_requirements(entities, tiles, build_origin)
-                bounds = area
-                tile_targets = targets or {}
+                state.bounds = area
+                state.tile_targets = targets or {}
 
                 for key, count in pairs(required or {}) do
                     local name, quality = key:match("^(.-)\x1f(.*)$")
@@ -763,91 +717,73 @@ describe("blueprint build/deconstruct cycle", function()
                     assert.is_true(inserted == count)
                 end
 
-                snap = snapshot_counts(anchor_inv, required or {})
+                state.snap = snapshot_counts(anchor_inv, required or {})
             end
 
-            on_tick(function()
-                test_utils.run_main_loop_periodic(constants.main_loop_interval)
-                if (game.tick % 600) == 0 then
-                    local entity_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })
-                    local tile_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "tile-ghost", force = force })
-                    local status = {}
-                    local ad = storage.anchors and storage.anchors[anchor_id] or nil
-                    local ad_spider_count = ad
-                            and ad.spiders
-                            and (function()
-                                local n = 0
-                                for _ in pairs(ad.spiders) do
-                                    n = n + 1
-                                end
-                                return n
-                            end)()
-                        or 0
-                    for _, sid in ipairs(spider_ids) do
-                        local sd = ad and ad.spiders and ad.spiders[sid] or nil
-                        status[#status + 1] = ("%s=%s"):format(tostring(sid), sd and sd.status or "nil")
-                    end
-                    report(
-                        ("[Brood][BlueprintCycle] phase=%s anchor_valid=%s anchor_in_storage=%s spider_count=%d ghosts=%d tile_ghosts=%d spiders={%s}"):format(
-                            tostring(phase),
-                            tostring(anchor_entity and anchor_entity.valid),
-                            tostring(ad ~= nil),
-                            ad_spider_count,
-                            #(entity_ghosts or {}),
-                            #(tile_ghosts or {}),
-                            table.concat(status, ",")
-                        )
-                    )
-                end
+            local function on_progress(ctx)
+                return progress_line({
+                    phase = ctx.phase,
+                    surface = surface,
+                    area = state.bounds,
+                    force = force,
+                    anchor_id = anchor_id,
+                    anchor_entity = anchor_entity,
+                    spider_ids = spider_ids,
+                })
+            end
 
-                if phase == "building" then
-                    if not any_build_ghosts(bounds) then
-                        assert.is_true(all_tiles_match_targets(tile_targets))
-                        phase = "wait_idle_after_build"
-                    end
-                    return true
-                end
-
-                if phase == "wait_idle_after_build" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        order_deconstruct_everything(bounds)
-                        order_deconstruct_tiles(tile_targets)
-                        phase = "deconstructing"
-                    end
-                    return true
-                end
-
-                if phase == "deconstructing" then
-                    if
-                        (not any_deconstruct_targets(bounds))
-                        and (not any_marked_tiles(bounds))
-                        and (not any_tile_proxies(bounds))
-                    then
-                        phase = "wait_idle_after_deconstruct"
-                    end
-                    return true
-                end
-
-                if phase == "wait_idle_after_deconstruct" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        phase = "verify"
-                    end
-                    return true
-                end
-
-                if phase == "verify" then
-                    assert.is_true(all_tiles_are(tile_targets, expected_tile_after_deconstruct))
-                    assert_area_empty_except_anchor_and_spiders(bounds)
-                    assert_counts_equal(anchor_inv, snap or {})
-                    inv.destroy()
-                    done()
-                    return false
-                end
-
-                return true
-            end)
+            test_utils.phase_machine({
+                timeout_ticks = 60 * 60,
+                description = "tile+entity cycle",
+                report = report,
+                main_loop_interval = constants.main_loop_interval,
+                progress_interval = 600,
+                on_progress = on_progress,
+                state = state,
+                initial = "building",
+                phases = {
+                    building = function()
+                        if not any_build_ghosts(state.bounds) then
+                            assert.is_true(all_tiles_match_targets(state.tile_targets))
+                            return "wait_idle_after_build"
+                        end
+                        return nil
+                    end,
+                    wait_idle_after_build = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            order_deconstruct_everything(state.bounds)
+                            order_deconstruct_tiles(state.tile_targets)
+                            return "deconstructing"
+                        end
+                        return nil
+                    end,
+                    deconstructing = function()
+                        if
+                            (not any_deconstruct_targets(state.bounds))
+                            and (not any_marked_tiles(state.bounds))
+                            and (not any_tile_proxies(state.bounds))
+                        then
+                            return "wait_idle_after_deconstruct"
+                        end
+                        return nil
+                    end,
+                    wait_idle_after_deconstruct = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            return "verify"
+                        end
+                        return nil
+                    end,
+                    verify = function()
+                        assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
+                        assert_area_empty_except_anchor_and_spiders(state.bounds)
+                        assert_counts_equal(anchor_inv, state.snap or {})
+                        return true
+                    end,
+                },
+                on_timeout = function(ctx)
+                    return on_progress(ctx)
+                end,
+            })
         end
     )
 
@@ -870,6 +806,7 @@ describe("blueprint build/deconstruct cycle", function()
 
             local inv, stack, imported, err = import_any_blueprint_item(fixture.data)
             assert.is_true(imported, "failed to import brood_test_tile_blueprint: " .. tostring(err or "unknown"))
+            imported_inv = inv
 
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
@@ -890,17 +827,18 @@ describe("blueprint build/deconstruct cycle", function()
 
             local build_origin = { x = base_pos.x + 80, y = base_pos.y }
 
-            async(60 * 60)
-            local phase = "building_missing_items"
-            local bounds = nil
-            local required = nil
-            local snap = nil
-            local tile_targets = {}
             local expected_tile_after_deconstruct = "grass-1"
-            local missing_key = nil
-            local missing_count = 0
-            local missing_min_tick = game.tick + (constants.main_loop_interval * 4)
-            local missing_deadline = game.tick + (60 * 20)
+            local state = {
+                bounds = nil,
+                required = nil,
+                snap = nil,
+                tile_targets = {},
+                expected_tile_after_deconstruct = expected_tile_after_deconstruct,
+                missing_key = nil,
+                missing_count = 0,
+                missing_min_tick = game.tick + (constants.main_loop_interval * 4),
+                missing_deadline = game.tick + (60 * 20),
+            }
 
             do
                 clear_area(build_origin, 20)
@@ -910,36 +848,39 @@ describe("blueprint build/deconstruct cycle", function()
                 local entities = get_entities(bp) or {}
                 local tiles = get_tiles(bp) or {}
                 local _, req, area, targets = place_ghosts_and_requirements(entities, tiles, build_origin)
-                bounds = area
-                required = req or {}
-                tile_targets = targets or {}
+                state.bounds = area
+                state.required = req or {}
+                state.tile_targets = targets or {}
 
-                snap = {}
+                state.snap = {}
                 local required_key_count = 0
-                for key, count in pairs(required) do
-                    snap[key] = count
+                for key, count in pairs(state.required) do
+                    state.snap[key] = count
                     required_key_count = required_key_count + 1
                 end
                 assert.is_true(required_key_count >= 2, "fixture must require at least 2 distinct items for this test")
 
-                for key, _ in pairs(required) do
+                for key, _ in pairs(state.required) do
                     local name = key:match("^(.-)\x1f")
                     if name == "stone-furnace" then
-                        missing_key = key
+                        state.missing_key = key
                         break
                     end
                 end
-                if not missing_key then
-                    for key, _ in pairs(required) do
-                        missing_key = key
+                if not state.missing_key then
+                    for key, _ in pairs(state.required) do
+                        state.missing_key = key
                         break
                     end
                 end
-                missing_count = required[missing_key] or 0
-                assert.is_true(missing_key ~= nil and missing_count > 0, "failed to select a missing required item")
+                state.missing_count = state.required[state.missing_key] or 0
+                assert.is_true(
+                    state.missing_key ~= nil and state.missing_count > 0,
+                    "failed to select a missing required item"
+                )
 
-                for key, count in pairs(required) do
-                    if key ~= missing_key then
+                for key, count in pairs(state.required) do
+                    if key ~= state.missing_key then
                         local name, quality = key:match("^(.-)\x1f(.*)$")
                         local stack_def = { name = name, count = count, quality = quality }
                         local inserted = anchor_inv.insert(stack_def)
@@ -956,62 +897,52 @@ describe("blueprint build/deconstruct cycle", function()
                 end
             end
 
-            on_tick(function()
-                test_utils.run_main_loop_periodic(constants.main_loop_interval)
-                if (game.tick % 600) == 0 then
-                    local entity_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "entity-ghost", force = force })
-                    local tile_ghosts =
-                        surface.find_entities_filtered({ area = bounds, type = "tile-ghost", force = force })
-                    local status = {}
-                    local ad = storage.anchors and storage.anchors[anchor_id] or nil
-                    local ad_spider_count = ad
-                            and ad.spiders
-                            and (function()
-                                local n = 0
-                                for _ in pairs(ad.spiders) do
-                                    n = n + 1
-                                end
-                                return n
-                            end)()
-                        or 0
-                    for _, sid in ipairs(spider_ids) do
-                        local sd = ad and ad.spiders and ad.spiders[sid] or nil
-                        status[#status + 1] = ("%s=%s"):format(tostring(sid), sd and sd.status or "nil")
-                    end
-                    report(
-                        ("[Brood][BlueprintCycle] phase=%s anchor_valid=%s anchor_in_storage=%s spider_count=%d ghosts=%d tile_ghosts=%d spiders={%s}"):format(
-                            tostring(phase),
-                            tostring(anchor_entity and anchor_entity.valid),
-                            tostring(ad ~= nil),
-                            ad_spider_count,
-                            #(entity_ghosts or {}),
-                            #(tile_ghosts or {}),
-                            table.concat(status, ",")
-                        )
-                    )
-                end
+            local function on_progress(ctx)
+                return progress_line({
+                    phase = ctx.phase,
+                    surface = surface,
+                    area = state.bounds,
+                    force = force,
+                    anchor_id = anchor_id,
+                    anchor_entity = anchor_entity,
+                    spider_ids = spider_ids,
+                })
+            end
 
-                if phase == "building_missing_items" then
-                    if game.tick > missing_deadline then
-                        assert.is_true(false, "timed out waiting for ghosts to remain with missing items")
-                    end
-                    if game.tick >= missing_min_tick then
+            test_utils.phase_machine({
+                timeout_ticks = 60 * 60,
+                description = "missing items cycle",
+                report = report,
+                main_loop_interval = constants.main_loop_interval,
+                progress_interval = 600,
+                on_progress = on_progress,
+                state = state,
+                initial = "building_missing_items",
+                phases = {
+                    building_missing_items = function(ctx)
+                        if ctx.tick > state.missing_deadline then
+                            error("timed out waiting for ghosts to remain with missing items")
+                        end
+                        if ctx.tick < state.missing_min_tick then
+                            return nil
+                        end
+
                         assert.is_true(
-                            any_build_ghosts(bounds),
+                            any_build_ghosts(state.bounds),
                             "expected ghosts to remain when required items are missing"
                         )
 
-                        local name, quality = missing_key:match("^(.-)\x1f(.*)$")
+                        local name, quality = state.missing_key:match("^(.-)\x1f(.*)$")
                         assert.is_true(anchor_inv.get_item_count({ name = name, quality = quality }) == 0)
 
-                        local inserted = anchor_inv.insert({ name = name, count = missing_count, quality = quality })
+                        local inserted =
+                            anchor_inv.insert({ name = name, count = state.missing_count, quality = quality })
                         assert.is_true(
-                            inserted == missing_count,
+                            inserted == state.missing_count,
                             ("failed to insert missing %s quality=%s count=%d inserted=%d"):format(
                                 name,
                                 quality,
-                                missing_count,
+                                state.missing_count,
                                 inserted or 0
                             )
                         )
@@ -1020,66 +951,60 @@ describe("blueprint build/deconstruct cycle", function()
                             ("[Brood][BlueprintCycle] inserted missing item %s quality=%s count=%d"):format(
                                 tostring(name),
                                 tostring(quality),
-                                missing_count
+                                state.missing_count
                             )
                         )
-                        phase = "building"
-                    end
-                    return true
-                end
 
-                if phase == "building" then
-                    if not any_build_ghosts(bounds) then
-                        assert.is_true(
-                            count_built_entities(bounds) > 0,
-                            "no entities built after missing items were added"
-                        )
-                        if tile_targets and #tile_targets > 0 then
-                            assert.is_true(all_tiles_match_targets(tile_targets))
+                        return "building"
+                    end,
+                    building = function()
+                        if not any_build_ghosts(state.bounds) then
+                            assert.is_true(
+                                count_built_entities(state.bounds) > 0,
+                                "no entities built after missing items were added"
+                            )
+                            if state.tile_targets and #state.tile_targets > 0 then
+                                assert.is_true(all_tiles_match_targets(state.tile_targets))
+                            end
+                            return "wait_idle_after_build"
                         end
-                        phase = "wait_idle_after_build"
-                    end
-                    return true
-                end
-
-                if phase == "wait_idle_after_build" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        order_deconstruct_everything(bounds)
-                        order_deconstruct_tiles(tile_targets)
-                        phase = "deconstructing"
-                    end
-                    return true
-                end
-
-                if phase == "deconstructing" then
-                    if
-                        (not any_deconstruct_targets(bounds))
-                        and (not any_marked_tiles(bounds))
-                        and (not any_tile_proxies(bounds))
-                    then
-                        phase = "wait_idle_after_deconstruct"
-                    end
-                    return true
-                end
-
-                if phase == "wait_idle_after_deconstruct" then
-                    if all_spiders_idle_near_anchor(spider_ids) then
-                        phase = "verify"
-                    end
-                    return true
-                end
-
-                if phase == "verify" then
-                    assert.is_true(all_tiles_are(tile_targets, expected_tile_after_deconstruct))
-                    assert_area_empty_except_anchor_and_spiders(bounds)
-                    assert_counts_equal(anchor_inv, snap or {})
-                    inv.destroy()
-                    done()
-                    return false
-                end
-
-                return true
-            end)
+                        return nil
+                    end,
+                    wait_idle_after_build = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            order_deconstruct_everything(state.bounds)
+                            order_deconstruct_tiles(state.tile_targets)
+                            return "deconstructing"
+                        end
+                        return nil
+                    end,
+                    deconstructing = function()
+                        if
+                            (not any_deconstruct_targets(state.bounds))
+                            and (not any_marked_tiles(state.bounds))
+                            and (not any_tile_proxies(state.bounds))
+                        then
+                            return "wait_idle_after_deconstruct"
+                        end
+                        return nil
+                    end,
+                    wait_idle_after_deconstruct = function()
+                        if all_spiders_idle_near_anchor(spider_ids) then
+                            return "verify"
+                        end
+                        return nil
+                    end,
+                    verify = function()
+                        assert.is_true(all_tiles_are(state.tile_targets, state.expected_tile_after_deconstruct))
+                        assert_area_empty_except_anchor_and_spiders(state.bounds)
+                        assert_counts_equal(anchor_inv, state.snap or {})
+                        return true
+                    end,
+                },
+                on_timeout = function(ctx)
+                    return on_progress(ctx)
+                end,
+            })
         end
     )
 end)

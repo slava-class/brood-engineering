@@ -201,6 +201,115 @@ function M.clear_area(surface, position, radius, opts)
     end
 end
 
+---@class TestUtilsSanitizeAreaOpts
+---@field force LuaForce?
+---@field anchor_entity LuaEntity?
+---@field skip_spiders boolean?
+---@field destroy_types string[]?
+---@field destroy_enemy boolean?
+---@field cancel_deconstruction boolean?
+---@field cancel_upgrade boolean?
+
+---@param surface LuaSurface
+---@param area BoundingBox
+---@param opts TestUtilsSanitizeAreaOpts?
+function M.sanitize_area(surface, area, opts)
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return
+    end
+    if not area then
+        return
+    end
+
+    local force = opts and opts.force or nil
+    local anchor_entity = opts and opts.anchor_entity or nil
+    local anchor_unit_number = anchor_entity and anchor_entity.valid and anchor_entity.unit_number or nil
+    local skip_spiders = opts and opts.skip_spiders == true
+
+    local destroy_enemy = true
+    if opts and opts.destroy_enemy == false then
+        destroy_enemy = false
+    end
+
+    local cancel_deconstruction = true
+    if opts and opts.cancel_deconstruction == false then
+        cancel_deconstruction = false
+    end
+
+    local cancel_upgrade = true
+    if opts and opts.cancel_upgrade == false then
+        cancel_upgrade = false
+    end
+
+    if cancel_deconstruction and force then
+        for _, e in
+            pairs(surface.find_entities_filtered({
+                area = area,
+                to_be_deconstructed = true,
+            }))
+        do
+            if e and e.valid and e.cancel_deconstruction then
+                pcall(function()
+                    e.cancel_deconstruction(force)
+                end)
+            end
+        end
+    end
+
+    if cancel_upgrade and force then
+        for _, e in
+            pairs(surface.find_entities_filtered({
+                area = area,
+                to_be_upgraded = true,
+            }))
+        do
+            if e and e.valid and e.cancel_upgrade then
+                pcall(function()
+                    e.cancel_upgrade(force)
+                end)
+            end
+        end
+    end
+
+    local destroy_types = (opts and opts.destroy_types) or { "entity-ghost", "tile-ghost", "item-request-proxy" }
+    if destroy_types and #destroy_types > 0 then
+        for _, e in
+            pairs(surface.find_entities_filtered({
+                area = area,
+                type = destroy_types,
+            }))
+        do
+            if e and e.valid then
+                if anchor_unit_number and e.unit_number and e.unit_number == anchor_unit_number then
+                    goto continue_destroy
+                end
+                if skip_spiders and e.type == "spider-vehicle" then
+                    goto continue_destroy
+                end
+                pcall(function()
+                    e.destroy({ raise_destroyed = false })
+                end)
+            end
+            ::continue_destroy::
+        end
+    end
+
+    if destroy_enemy then
+        for _, e in
+            pairs(surface.find_entities_filtered({
+                area = area,
+                force = "enemy",
+            }))
+        do
+            if e and e.valid then
+                pcall(function()
+                    e.destroy({ raise_destroyed = false })
+                end)
+            end
+        end
+    end
+end
+
 function M.run_main_loop()
     return remote.call("brood-engineering-test", "run_main_loop")
 end
@@ -213,6 +322,144 @@ function M.run_main_loop_periodic(interval_ticks)
     if (game.tick % interval_ticks) == 0 then
         M.run_main_loop()
     end
+end
+
+---@class TestUtilsPhaseMachineCtx
+---@field tick integer
+---@field start_tick integer
+---@field deadline_tick integer
+---@field elapsed_ticks integer
+---@field state table
+---@field phase string
+---@field phase_started_tick integer
+---@field phase_elapsed_ticks integer
+
+---@alias TestUtilsPhaseMachineStepResult boolean|string|{ done?: boolean, phase?: string }|nil
+
+---@class TestUtilsPhaseMachineOpts
+---@field timeout_ticks integer
+---@field timeout_slack_ticks integer?
+---@field description string?
+---@field report fun(msg: string)?
+---@field main_loop_interval integer?
+---@field progress_interval integer?
+---@field on_progress fun(ctx: TestUtilsPhaseMachineCtx): string?
+---@field on_transition fun(ctx: TestUtilsPhaseMachineCtx, from: string, to: string)?
+---@field on_timeout fun(ctx: TestUtilsPhaseMachineCtx): string?
+---@field state table?
+---@field initial string
+---@field phases table<string, fun(ctx: TestUtilsPhaseMachineCtx): TestUtilsPhaseMachineStepResult>
+---@field phase_timeouts table<string, integer>?
+
+---@param opts TestUtilsPhaseMachineOpts
+function M.phase_machine(opts)
+    assert(type(opts) == "table", "phase_machine expects opts table")
+    assert(type(opts.initial) == "string" and opts.initial ~= "", "phase_machine requires initial phase name")
+    assert(type(opts.phases) == "table", "phase_machine requires phases table")
+
+    local state = opts.state or {}
+    if type(state) ~= "table" then
+        state = {}
+    end
+    if type(state.phase) ~= "string" or state.phase == "" then
+        state.phase = opts.initial
+    end
+    if type(state.phase_started_tick) ~= "number" then
+        state.phase_started_tick = game.tick
+    end
+
+    local phase_timeouts = opts.phase_timeouts or {}
+
+    M.wait_until({
+        timeout_ticks = opts.timeout_ticks,
+        timeout_slack_ticks = opts.timeout_slack_ticks,
+        description = opts.description,
+        report = opts.report,
+        main_loop_interval = opts.main_loop_interval,
+        progress_interval = opts.progress_interval,
+        on_progress = opts.on_progress or function(ctx)
+            return ("[Test][PhaseMachine] phase=%s elapsed=%d/%d"):format(
+                tostring(state.phase),
+                ctx.elapsed_ticks,
+                opts.timeout_ticks
+            )
+        end,
+        state = state,
+        on_tick = function(ctx)
+            local phase = state.phase
+            local phase_fn = opts.phases[phase]
+            assert(type(phase_fn) == "function", "missing phase handler for " .. tostring(phase))
+
+            local phase_timeout = phase_timeouts[phase]
+            if type(phase_timeout) == "number" and phase_timeout > 0 then
+                local elapsed_in_phase = ctx.tick - (state.phase_started_tick or ctx.start_tick)
+                if elapsed_in_phase >= phase_timeout then
+                    error(
+                        ("phase %s timed out after %d ticks (tick=%d)"):format(tostring(phase), phase_timeout, ctx.tick)
+                    )
+                end
+            end
+        end,
+        condition = function(ctx)
+            local phase = state.phase
+            local phase_fn = opts.phases[phase]
+            assert(type(phase_fn) == "function", "missing phase handler for " .. tostring(phase))
+
+            local pm_ctx = {
+                tick = ctx.tick,
+                start_tick = ctx.start_tick,
+                deadline_tick = ctx.deadline_tick,
+                elapsed_ticks = ctx.elapsed_ticks,
+                state = state,
+                phase = phase,
+                phase_started_tick = state.phase_started_tick or ctx.start_tick,
+                phase_elapsed_ticks = ctx.tick - (state.phase_started_tick or ctx.start_tick),
+            }
+
+            local result = phase_fn(pm_ctx)
+            if result == true then
+                return true
+            end
+            if type(result) == "table" and result.done == true then
+                return true
+            end
+
+            local next_phase = nil
+            if type(result) == "string" and result ~= "" then
+                next_phase = result
+            elseif type(result) == "table" and type(result.phase) == "string" and result.phase ~= "" then
+                next_phase = result.phase
+            end
+
+            if next_phase and next_phase ~= phase then
+                local old = phase
+                state.phase = next_phase
+                state.phase_started_tick = ctx.tick
+                if opts.on_transition then
+                    opts.on_transition(pm_ctx, old, next_phase)
+                end
+            end
+
+            return false
+        end,
+        on_timeout = function(ctx)
+            if opts.on_timeout then
+                local phase = state.phase
+                local pm_ctx = {
+                    tick = ctx.tick,
+                    start_tick = ctx.start_tick,
+                    deadline_tick = ctx.deadline_tick,
+                    elapsed_ticks = ctx.elapsed_ticks,
+                    state = state,
+                    phase = phase,
+                    phase_started_tick = state.phase_started_tick or ctx.start_tick,
+                    phase_elapsed_ticks = ctx.tick - (state.phase_started_tick or ctx.start_tick),
+                }
+                return opts.on_timeout(pm_ctx)
+            end
+            return nil
+        end,
+    })
 end
 
 ---@class TestUtilsWaitUntilOpts

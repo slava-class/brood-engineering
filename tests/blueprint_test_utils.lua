@@ -3,6 +3,70 @@ local test_utils = require("tests/test_utils")
 
 M.report = test_utils.report
 
+---@class BlueprintProgressLineOpts
+---@field prefix string?
+---@field phase string
+---@field idx integer?
+---@field surface LuaSurface
+---@field area BoundingBox
+---@field force LuaForce
+---@field anchor_id string
+---@field anchor_entity LuaEntity?
+---@field spider_ids string[]?
+
+---@param opts BlueprintProgressLineOpts
+---@return string?
+function M.progress_line(opts)
+    if not (opts and opts.surface and opts.area and opts.force and opts.anchor_id) then
+        return nil
+    end
+
+    local prefix = opts.prefix or "[Brood][BlueprintCycle]"
+
+    local entity_ghosts = opts.surface.find_entities_filtered({
+        area = opts.area,
+        type = "entity-ghost",
+        force = opts.force,
+    })
+    local tile_ghosts = opts.surface.find_entities_filtered({
+        area = opts.area,
+        type = "tile-ghost",
+        force = opts.force,
+    })
+
+    local ad = storage.anchors and storage.anchors[opts.anchor_id] or nil
+
+    local ad_spider_count = 0
+    if ad and ad.spiders then
+        for _ in pairs(ad.spiders) do
+            ad_spider_count = ad_spider_count + 1
+        end
+    end
+
+    local status = {}
+    for _, sid in ipairs(opts.spider_ids or {}) do
+        local sd = ad and ad.spiders and ad.spiders[sid] or nil
+        status[#status + 1] = ("%s=%s"):format(tostring(sid), sd and sd.status or "nil")
+    end
+
+    local idx_part = ""
+    if opts.idx ~= nil then
+        idx_part = (" idx=%d"):format(tonumber(opts.idx) or 0)
+    end
+
+    return ("%s phase=%s%s anchor_valid=%s anchor_in_storage=%s spider_count=%d ghosts=%d tile_ghosts=%d spiders={%s}"):format(
+        tostring(prefix),
+        tostring(opts.phase),
+        idx_part,
+        tostring(opts.anchor_entity and opts.anchor_entity.valid),
+        tostring(ad ~= nil),
+        ad_spider_count,
+        #(entity_ghosts or {}),
+        #(tile_ghosts or {}),
+        table.concat(status, ",")
+    )
+end
+
 ---@param item LuaItemStack
 ---@param max_depth integer
 ---@return { stack: LuaItemStack, path: string }[] blueprints
