@@ -73,7 +73,7 @@ describe("tile deconstruction", function()
             condition = function()
                 local current_tile = surface.get_tile(tile_pos)
                 if current_tile and current_tile.valid and current_tile.name ~= "stone-path" then
-                    local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+                    local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
                     if inventory.get_item_count("stone-brick") >= 1 then
                         assert.are_equal("grass-1", current_tile.name)
                         return true
@@ -118,7 +118,7 @@ describe("tile deconstruction", function()
             assert.is_true(e.type ~= "deconstructible-tile-proxy")
         end
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
         inventory.insert({ name = "spiderling", count = 50 })
 
         local anchor_area = anchor.get_expanded_work_area(anchor_data)
@@ -150,7 +150,7 @@ describe("tile deconstruction", function()
                     end
                 end
 
-                local final_inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+                local final_inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
                 if final_inventory.get_item_count("stone-brick") < #tile_positions then
                     return false
                 end

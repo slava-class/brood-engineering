@@ -33,6 +33,24 @@ describe("blueprint build/deconstruct cycle", function()
         })
     end
 
+    ---@param spider_count integer
+    ---@return LuaInventory anchor_inv
+    ---@return string[] spider_ids
+    ---@return MapPosition build_origin
+    local function setup_anchor_inventory_and_spiders(spider_count)
+        local anchor_inv = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
+        anchor_inv.clear()
+
+        local spider_ids = test_utils.deploy_spiders(anchor_id, {
+            count = spider_count,
+            inventory = anchor_inv,
+        })
+
+        -- Build far enough away that we can clear the build area without touching the anchor/spiders.
+        local build_origin = { x = base_pos.x + 80, y = base_pos.y }
+        return anchor_inv, spider_ids, build_origin
+    end
+
     ---@param inv LuaInventory
     ---@param items table<string, integer>
     local function snapshot_counts(inv, items)
@@ -412,8 +430,7 @@ describe("blueprint build/deconstruct cycle", function()
         base_pos = { x = 7600 + math.random(0, 50), y = math.random(-20, 20) }
         created = {}
 
-        surface.request_to_generate_chunks(base_pos, 2)
-        surface.force_generate_chunk_requests()
+        test_utils.ensure_chunks(surface, base_pos, 2)
 
         original_global_enabled = test_utils.disable_global_enabled()
 
@@ -449,10 +466,7 @@ describe("blueprint build/deconstruct cycle", function()
             track = track,
         })
 
-        local inv = anchor_entity.get_inventory(defines.inventory.character_main)
-        if inv then
-            inv.clear()
-        end
+        test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main).clear()
     end)
 
     after_each(function()
@@ -490,23 +504,9 @@ describe("blueprint build/deconstruct cycle", function()
             local blueprints = collect_blueprints(stack, 3)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_book")
 
-            local anchor_inv = anchor_entity.get_inventory(defines.inventory.character_main)
-            assert.is_true(anchor_inv and anchor_inv.valid)
-            anchor_inv.clear()
-
             -- Deploy multiple spiders so the cycle stays fast.
             local spiders_to_deploy = math.min(constants.max_spiders_per_anchor or 1, 3)
-            anchor_inv.insert({ name = "spiderling", count = spiders_to_deploy })
-
-            local spider_ids = {}
-            for _ = 1, spiders_to_deploy do
-                local spider_id = spider.deploy(anchor_id)
-                assert.is_not_nil(spider_id)
-                spider_ids[#spider_ids + 1] = spider_id
-            end
-
-            -- Build far enough away that we can clear the build area without touching the anchor/spiders.
-            local build_origin = { x = base_pos.x + 80, y = base_pos.y }
+            local anchor_inv, spider_ids, build_origin = setup_anchor_inventory_and_spiders(spiders_to_deploy)
 
             local expected_tile_after_deconstruct = "grass-1"
             local ticks_per_blueprint = 60 * 45
@@ -674,22 +674,7 @@ describe("blueprint build/deconstruct cycle", function()
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
 
-            local anchor_inv = anchor_entity.get_inventory(defines.inventory.character_main)
-            assert.is_true(anchor_inv and anchor_inv.valid)
-            anchor_inv.clear()
-
-            local spiders_to_deploy = 1
-            anchor_inv.insert({ name = "spiderling", count = spiders_to_deploy })
-
-            local spider_ids = {}
-            for _ = 1, spiders_to_deploy do
-                local spider_id = spider.deploy(anchor_id)
-                assert.is_not_nil(spider_id)
-                spider_ids[#spider_ids + 1] = spider_id
-            end
-
-            -- Build far enough away that we can clear the build area without touching the anchor/spiders.
-            local build_origin = { x = base_pos.x + 80, y = base_pos.y }
+            local anchor_inv, spider_ids, build_origin = setup_anchor_inventory_and_spiders(1)
 
             local expected_tile_after_deconstruct = "grass-1"
             local state = {
@@ -811,21 +796,7 @@ describe("blueprint build/deconstruct cycle", function()
             local blueprints = collect_blueprints(stack, 1)
             assert.is_true(blueprints and #blueprints > 0, "no blueprints found in brood_test_tile_blueprint")
 
-            local anchor_inv = anchor_entity.get_inventory(defines.inventory.character_main)
-            assert.is_true(anchor_inv and anchor_inv.valid)
-            anchor_inv.clear()
-
-            local spiders_to_deploy = 1
-            anchor_inv.insert({ name = "spiderling", count = spiders_to_deploy })
-
-            local spider_ids = {}
-            for _ = 1, spiders_to_deploy do
-                local spider_id = spider.deploy(anchor_id)
-                assert.is_not_nil(spider_id)
-                spider_ids[#spider_ids + 1] = spider_id
-            end
-
-            local build_origin = { x = base_pos.x + 80, y = base_pos.y }
+            local anchor_inv, spider_ids, build_origin = setup_anchor_inventory_and_spiders(1)
 
             local expected_tile_after_deconstruct = "grass-1"
             local state = {

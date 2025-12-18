@@ -49,7 +49,7 @@ describe("recall spill behavior", function()
     end)
 
     test("recall spills spiderling item when anchor inventory is full", function()
-        local inventory = anchor_entity.get_inventory(defines.inventory.character_main)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.character_main)
         assert.are_equal(1, inventory.get_item_count("spiderling"))
 
         local spider_id = spider.deploy(anchor_id)

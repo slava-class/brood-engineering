@@ -3,74 +3,55 @@ local constants = require("scripts/constants")
 local test_utils = require("tests/test_utils")
 
 describe("module insertion", function()
-    local surface
-    local force
-    local base_pos
-    local created = {}
-    local anchor_id
-    local anchor_entity
-    local anchor_data
-    local original_global_enabled
-
-    local function track(entity)
-        return test_utils.track(created, entity)
-    end
+    local ctx
 
     local function clear_area(position, radius)
-        test_utils.clear_area(surface, position, radius, { anchor_entity = anchor_entity, skip_spiders = true })
+        test_utils.clear_area(ctx.surface, position, radius, {
+            anchor_entity = ctx.anchor_entity,
+            skip_spiders = true,
+        })
     end
 
     before_each(function()
-        surface = game.surfaces[1]
-        force = game.forces.player
-        base_pos = { x = 8000 + math.random(0, 50), y = math.random(-20, 20) }
-        created = {}
-
-        original_global_enabled = test_utils.disable_global_enabled()
-        test_utils.reset_storage()
-
-        anchor_id, anchor_entity, anchor_data = test_utils.create_test_anchor({
-            surface = surface,
-            force = force,
-            position = base_pos,
-            name = "wooden-chest",
-            inventory_id = defines.inventory.chest,
-            seed = { { name = "spiderling", count = 10 } },
+        ctx = test_utils.setup_anchor_test({
+            base_pos = { x = 8000 + math.random(0, 50), y = math.random(-20, 20) },
+            clean_radius = 60,
+            clear_radius = 20,
+            anchor_name = "wooden-chest",
+            anchor_inventory_id = defines.inventory.chest,
+            anchor_seed = { { name = "spiderling", count = 10 } },
             anchor_id_prefix = "test_anchor_modules",
-            track = track,
         })
     end)
 
     after_each(function()
-        test_utils.teardown_anchor(anchor_id, anchor_data)
-        test_utils.restore_global_enabled(original_global_enabled)
-        test_utils.destroy_tracked(created)
+        test_utils.teardown_anchor_test(ctx)
     end)
 
     test("inserts modules into an assembling machine (3x3)", function()
-        local target_pos = { x = base_pos.x + 18, y = base_pos.y }
+        local target_pos = { x = ctx.base_pos.x + 18, y = ctx.base_pos.y }
         clear_area(target_pos, 12)
 
-        local machine = track(surface.create_entity({
+        local machine = ctx.track(ctx.surface.create_entity({
             name = "assembling-machine-2",
             position = target_pos,
             direction = defines.direction.north,
-            force = force,
+            force = ctx.force,
         }))
         assert.is_true(machine and machine.valid)
 
         local module_inventory = machine.get_module_inventory()
         assert.is_true(module_inventory and module_inventory.valid)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         local requested = 2
         local supplied = 50
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        local proxy = track(surface.create_entity({
+        local proxy = ctx.track(ctx.surface.create_entity({
             name = "item-request-proxy",
             position = machine.position,
-            force = force,
+            force = ctx.force,
             target = machine,
             modules = {
                 {
@@ -113,29 +94,29 @@ describe("module insertion", function()
     end)
 
     test("inserts modules into an oil refinery (5x5)", function()
-        local target_pos = { x = base_pos.x + 34, y = base_pos.y }
+        local target_pos = { x = ctx.base_pos.x + 34, y = ctx.base_pos.y }
         clear_area(target_pos, 15)
 
-        local refinery = track(surface.create_entity({
+        local refinery = ctx.track(ctx.surface.create_entity({
             name = "oil-refinery",
             position = target_pos,
             direction = defines.direction.north,
-            force = force,
+            force = ctx.force,
         }))
         assert.is_true(refinery and refinery.valid)
 
         local module_inventory = refinery.get_module_inventory()
         assert.is_true(module_inventory and module_inventory.valid)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         local requested = 3
         local supplied = 60
         inventory.insert({ name = "speed-module", count = supplied, quality = "normal" })
 
-        local proxy = track(surface.create_entity({
+        local proxy = ctx.track(ctx.surface.create_entity({
             name = "item-request-proxy",
             position = refinery.position,
-            force = force,
+            force = ctx.force,
             target = refinery,
             modules = {
                 {
@@ -179,14 +160,14 @@ describe("module insertion", function()
     end)
 
     test("swaps a wrong module using removal_plan then clears proxy", function()
-        local target_pos = { x = base_pos.x + 52, y = base_pos.y }
+        local target_pos = { x = ctx.base_pos.x + 52, y = ctx.base_pos.y }
         clear_area(target_pos, 12)
 
-        local machine = track(surface.create_entity({
+        local machine = ctx.track(ctx.surface.create_entity({
             name = "assembling-machine-2",
             position = target_pos,
             direction = defines.direction.north,
-            force = force,
+            force = ctx.force,
         }))
         assert.is_true(machine and machine.valid)
 
@@ -195,13 +176,13 @@ describe("module insertion", function()
 
         assert.is_true(module_inventory[1].set_stack({ name = "productivity-module", count = 1, quality = "normal" }))
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(ctx.anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "speed-module", count = 10, quality = "normal" })
 
-        local proxy = track(surface.create_entity({
+        local proxy = ctx.track(ctx.surface.create_entity({
             name = "item-request-proxy",
             position = machine.position,
-            force = force,
+            force = ctx.force,
             target = machine,
             modules = {
                 {

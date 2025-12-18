@@ -71,7 +71,7 @@ describe("entity deconstruction", function()
 
         furnace.order_deconstruction(force)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(furnace, inventory))
         assert.is_true(deconstruct_entity.execute({}, furnace, inventory, anchor_data))
         assert.is_true(not furnace.valid)
@@ -105,7 +105,7 @@ describe("entity deconstruction", function()
 
         belt.order_deconstruction(force)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
         assert.is_true(deconstruct_entity.execute({}, belt, inventory, anchor_data))
         assert.is_true(not belt.valid)
@@ -205,7 +205,7 @@ describe("entity deconstruction", function()
 
         belt.order_deconstruction(force)
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         assert.is_true(deconstruct_entity.can_execute(belt, inventory))
         assert.is_true(deconstruct_entity.execute({}, belt, inventory, anchor_data))
         assert.is_true(not belt.valid)

@@ -51,7 +51,7 @@ describe("build large entity ghosts", function()
     test("builds a stone furnace ghost (2x2)", function()
         local ghost_pos = { x = base_pos.x + 10, y = base_pos.y }
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "stone-furnace", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 8)
@@ -85,7 +85,7 @@ describe("build large entity ghosts", function()
     test("builds an assembling machine ghost (3x3)", function()
         local ghost_pos = { x = base_pos.x + 14, y = base_pos.y }
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "assembling-machine-2", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 10)
@@ -119,7 +119,7 @@ describe("build large entity ghosts", function()
     test("builds an oil refinery ghost (5x5)", function()
         local ghost_pos = { x = base_pos.x + 18, y = base_pos.y }
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "oil-refinery", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 12)
@@ -153,7 +153,7 @@ describe("build large entity ghosts", function()
     test("builds a rocket silo ghost (9x9)", function()
         local ghost_pos = { x = base_pos.x + 32, y = base_pos.y }
 
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
         inventory.insert({ name = "rocket-silo", count = 1, quality = "normal" })
 
         clear_build_area(ghost_pos, 15)

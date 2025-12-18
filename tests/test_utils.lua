@@ -135,6 +135,163 @@ function M.create_test_anchor(opts)
     return anchor_id, entity, anchor_data, inventory
 end
 
+---@class TestUtilsDeploySpidersOpts
+---@field count integer
+---@field inventory LuaInventory?
+---@field item_name string?
+
+---@param anchor_id string
+---@param opts TestUtilsDeploySpidersOpts
+---@return string[] spider_ids
+function M.deploy_spiders(anchor_id, opts)
+    assert(type(anchor_id) == "string" and anchor_id ~= "", "deploy_spiders requires anchor_id")
+    assert(type(opts) == "table", "deploy_spiders requires opts table")
+    assert(type(opts.count) == "number" and opts.count >= 1, "deploy_spiders requires count >= 1")
+
+    local count = math.floor(opts.count)
+    local inventory = opts.inventory
+    local item_name = opts.item_name or "spiderling"
+
+    if inventory and inventory.valid then
+        local existing = inventory.get_item_count(item_name)
+        local missing = count - existing
+        if missing > 0 then
+            local inserted = inventory.insert({ name = item_name, count = missing })
+            assert(
+                inserted == missing,
+                ("failed to insert %s for deploy: missing=%d inserted=%d"):format(
+                    tostring(item_name),
+                    missing,
+                    inserted or 0
+                )
+            )
+        end
+    end
+
+    local spider_ids = {}
+    for _ = 1, count do
+        local spider_id = spider.deploy(anchor_id)
+        assert(spider_id ~= nil, "spider.deploy returned nil")
+        spider_ids[#spider_ids + 1] = spider_id
+    end
+    return spider_ids
+end
+
+---@param entity LuaEntity
+---@param inventory_id integer
+---@return LuaInventory
+function M.anchor_inventory(entity, inventory_id)
+    assert(entity and entity.valid, "anchor_inventory requires a valid entity")
+    assert(type(inventory_id) == "number", "anchor_inventory requires inventory_id number")
+    local inv = entity.get_inventory(inventory_id)
+    assert(inv and inv.valid, "anchor inventory missing/invalid")
+    return inv
+end
+
+---@class TestUtilsSetupAnchorTestOpts
+---@field surface LuaSurface?
+---@field force LuaForce?
+---@field base_pos MapPosition?
+---@field base_pos_factory fun(): MapPosition?
+---@field ensure_chunks_radius integer?
+---@field clean_radius integer?
+---@field clear_radius integer?
+---@field anchor_name string
+---@field anchor_inventory_id integer?
+---@field anchor_seed { name: string, count: integer, quality?: string }[]?
+---@field anchor_id_prefix string
+---@field player_index integer?
+
+---@class TestUtilsAnchorTestCtx
+---@field surface LuaSurface
+---@field force LuaForce
+---@field base_pos MapPosition
+---@field created LuaEntity[]
+---@field track fun(entity: LuaEntity): LuaEntity?
+---@field anchor_id string
+---@field anchor_entity LuaEntity
+---@field anchor_data table
+---@field original_global_enabled boolean
+
+---@param opts TestUtilsSetupAnchorTestOpts
+---@return TestUtilsAnchorTestCtx
+function M.setup_anchor_test(opts)
+    assert(type(opts) == "table", "setup_anchor_test expects opts table")
+    assert(type(opts.anchor_name) == "string" and opts.anchor_name ~= "", "setup_anchor_test requires anchor_name")
+    assert(
+        type(opts.anchor_id_prefix) == "string" and opts.anchor_id_prefix ~= "",
+        "setup_anchor_test requires anchor_id_prefix"
+    )
+
+    local surface = opts.surface or game.surfaces[1]
+    local force = opts.force or game.forces.player
+    assert(surface, "setup_anchor_test requires a surface")
+    assert(force, "setup_anchor_test requires a force")
+
+    local base_pos = opts.base_pos
+    if not base_pos and opts.base_pos_factory then
+        base_pos = opts.base_pos_factory()
+    end
+    assert(type(base_pos) == "table" and type(base_pos.x) == "number" and type(base_pos.y) == "number")
+
+    local created = {}
+    local ctx = {
+        surface = surface,
+        force = force,
+        base_pos = base_pos,
+        created = created,
+        track = nil,
+        anchor_id = nil,
+        anchor_entity = nil,
+        anchor_data = nil,
+        original_global_enabled = false,
+    }
+    ctx.track = function(entity)
+        return M.track(created, entity)
+    end
+
+    ctx.original_global_enabled = M.disable_global_enabled()
+    M.reset_storage()
+
+    if opts.ensure_chunks_radius and opts.ensure_chunks_radius > 0 then
+        M.ensure_chunks(surface, base_pos, opts.ensure_chunks_radius)
+    end
+
+    if opts.clean_radius and opts.clean_radius > 0 then
+        local r = opts.clean_radius
+        local area = { { base_pos.x - r, base_pos.y - r }, { base_pos.x + r, base_pos.y + r } }
+        M.sanitize_area(surface, area, { force = force })
+    end
+
+    if opts.clear_radius and opts.clear_radius > 0 then
+        M.clear_area(surface, base_pos, opts.clear_radius)
+    end
+
+    ctx.anchor_id, ctx.anchor_entity, ctx.anchor_data = M.create_test_anchor({
+        surface = surface,
+        force = force,
+        position = base_pos,
+        name = opts.anchor_name,
+        anchor_id_prefix = opts.anchor_id_prefix,
+        player_index = opts.player_index,
+        inventory_id = opts.anchor_inventory_id,
+        seed = opts.anchor_seed,
+        track = ctx.track,
+    })
+
+    return ctx
+end
+
+---@param ctx TestUtilsAnchorTestCtx?
+function M.teardown_anchor_test(ctx)
+    if not ctx then
+        return
+    end
+    M.teardown_anchor(ctx.anchor_id, ctx.anchor_data)
+    M.restore_global_enabled(ctx.original_global_enabled)
+    M.destroy_tracked(ctx.created)
+end
+
 ---@param anchor_id string?
 ---@param anchor_data table?
 function M.teardown_anchor(anchor_id, anchor_data)
@@ -370,6 +527,22 @@ function M.phase_machine(opts)
 
     local phase_timeouts = opts.phase_timeouts or {}
 
+    ---@param ctx table
+    ---@return TestUtilsPhaseMachineCtx
+    local function to_pm_ctx(ctx)
+        local phase = state.phase
+        return {
+            tick = ctx.tick,
+            start_tick = ctx.start_tick,
+            deadline_tick = ctx.deadline_tick,
+            elapsed_ticks = ctx.elapsed_ticks,
+            state = state,
+            phase = phase,
+            phase_started_tick = state.phase_started_tick or ctx.start_tick,
+            phase_elapsed_ticks = ctx.tick - (state.phase_started_tick or ctx.start_tick),
+        }
+    end
+
     M.wait_until({
         timeout_ticks = opts.timeout_ticks,
         timeout_slack_ticks = opts.timeout_slack_ticks,
@@ -377,10 +550,14 @@ function M.phase_machine(opts)
         report = opts.report,
         main_loop_interval = opts.main_loop_interval,
         progress_interval = opts.progress_interval,
-        on_progress = opts.on_progress or function(ctx)
+        on_progress = function(ctx)
+            local pm_ctx = to_pm_ctx(ctx)
+            if opts.on_progress then
+                return opts.on_progress(pm_ctx)
+            end
             return ("[Test][PhaseMachine] phase=%s elapsed=%d/%d"):format(
-                tostring(state.phase),
-                ctx.elapsed_ticks,
+                tostring(pm_ctx.phase),
+                pm_ctx.elapsed_ticks,
                 opts.timeout_ticks
             )
         end,
@@ -405,16 +582,7 @@ function M.phase_machine(opts)
             local phase_fn = opts.phases[phase]
             assert(type(phase_fn) == "function", "missing phase handler for " .. tostring(phase))
 
-            local pm_ctx = {
-                tick = ctx.tick,
-                start_tick = ctx.start_tick,
-                deadline_tick = ctx.deadline_tick,
-                elapsed_ticks = ctx.elapsed_ticks,
-                state = state,
-                phase = phase,
-                phase_started_tick = state.phase_started_tick or ctx.start_tick,
-                phase_elapsed_ticks = ctx.tick - (state.phase_started_tick or ctx.start_tick),
-            }
+            local pm_ctx = to_pm_ctx(ctx)
 
             local result = phase_fn(pm_ctx)
             if result == true then
@@ -444,18 +612,7 @@ function M.phase_machine(opts)
         end,
         on_timeout = function(ctx)
             if opts.on_timeout then
-                local phase = state.phase
-                local pm_ctx = {
-                    tick = ctx.tick,
-                    start_tick = ctx.start_tick,
-                    deadline_tick = ctx.deadline_tick,
-                    elapsed_ticks = ctx.elapsed_ticks,
-                    state = state,
-                    phase = phase,
-                    phase_started_tick = state.phase_started_tick or ctx.start_tick,
-                    phase_elapsed_ticks = ctx.tick - (state.phase_started_tick or ctx.start_tick),
-                }
-                return opts.on_timeout(pm_ctx)
+                return opts.on_timeout(to_pm_ctx(ctx))
             end
             return nil
         end,

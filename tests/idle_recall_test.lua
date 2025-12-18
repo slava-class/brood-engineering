@@ -76,7 +76,7 @@ describe("idle recall after finishing work", function()
     end)
 
     test("deploys, completes nearby task, then recalls after ~2s of no work", function()
-        local inventory = anchor_entity.get_inventory(defines.inventory.chest)
+        local inventory = test_utils.anchor_inventory(anchor_entity, defines.inventory.chest)
 
         -- Keep the scheduled main loop disabled and drive it manually on the
         -- same cadence as on_nth_tick for determinism.
