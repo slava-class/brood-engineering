@@ -866,6 +866,12 @@ if script.active_mods and script.active_mods["factorio-test"] then
             set_debug_logging_override = function(enabled)
                 storage.debug_logging_override = enabled
             end,
+            press_brood_toggle = function(player_index)
+                toggle_global({
+                    prototype_name = "brood-toggle",
+                    player_index = player_index or 1,
+                })
+            end,
             reset_assignment_limits = function()
                 storage.assignment_limits = {}
             end,
@@ -922,6 +928,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         "tests/build_entity_large_test",
         "tests/module_insert_test",
         "tests/recall_spill_test",
+        "tests/toggle_disable_recall_test",
     }, {
         log_passed_tests = true,
         log_skipped_tests = true,

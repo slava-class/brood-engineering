@@ -31,3 +31,8 @@ run = "mise run fmt-lua-check"
 # Wrapper around the local factorio-llm-docs corpus (search/get/open).
 # Configure the checkout path via FACTORIO_LLM_DOCS_ROOT if needed.
 run = "bash bin/fdocs"
+
+[env]
+# In sandboxed environments (e.g. Codex workspace-write), writing to `~/Library/Caches`
+# and other home-scoped directories may be blocked. Keep mise state inside the repo.
+MISE_CACHE_DIR = ".mise/cache"

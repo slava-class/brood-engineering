@@ -7,6 +7,24 @@ local anchor = require("scripts/anchor")
 
 local spider = {}
 
+---@param spider_entity LuaEntity?
+---@return ItemStackDefinition
+local function get_recall_item_stack(spider_entity)
+    if spider_entity and spider_entity.valid then
+        local proto = spider_entity.prototype
+        local items = proto and proto.items_to_place_this or nil
+        local it = items and items[1] or nil
+        if it and it.name then
+            local count = it.count or 1
+            if not count or count < 1 then
+                count = 1
+            end
+            return { name = it.name, count = count }
+        end
+    end
+    return { name = "spiderling", count = 1 }
+end
+
 ---@param spider_entity LuaEntity
 ---@param ghost LuaEntity
 ---@return MapPosition? destination
@@ -184,6 +202,7 @@ function spider.recall(spider_id)
     end
 
     local spider_entity = spider_data.entity
+    local recall_item = get_recall_item_stack(spider_entity)
 
     -- Clear task assignment
     if spider_data.task and spider_data.task.id then
@@ -302,13 +321,15 @@ function spider.recall(spider_id)
                 end
             end
 
-            local returned = inventory.insert({ name = "spiderling", count = 1 })
-            if (returned or 0) < 1 then
-                spill({ name = "spiderling", count = 1 })
+            local expected = recall_item.count or 1
+            local returned = inventory.insert(recall_item)
+            local missing = expected - (returned or 0)
+            if missing > 0 then
+                spill({ name = recall_item.name, count = missing, quality = recall_item.quality })
             end
         else
             -- No valid anchor inventory; ensure the spiderling item isn't lost.
-            spill({ name = "spiderling", count = 1 })
+            spill(recall_item)
         end
         spider_entity.destroy({ raise_destroy = false })
     end

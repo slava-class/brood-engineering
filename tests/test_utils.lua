@@ -1203,6 +1203,11 @@ function M.run_main_loop()
     return remote.call("brood-engineering-test", "run_main_loop")
 end
 
+---@param player_index integer?
+function M.press_brood_toggle(player_index)
+    return remote.call("brood-engineering-test", "press_brood_toggle", player_index or 1)
+end
+
 ---@param interval_ticks integer
 function M.run_main_loop_periodic(interval_ticks)
     if not interval_ticks or interval_ticks < 1 then

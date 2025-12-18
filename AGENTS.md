@@ -34,6 +34,8 @@ If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-
 Codex CLI note:
 
 - In approval-gated runs (especially `approval_policy=untrusted`), `mise run docs -- ...` may be aborted until the user approves the command. If that happens, re-run it while explicitly requesting approval (with a 1-sentence justification).
+- In filesystem-sandboxed runs (for example `sandbox_mode=workspace-write`), mise may not be allowed to write to its default home-scoped cache/data/state dirs. To avoid `mise WARN failed to write cache file ...`, launch mise with workspace dirs, e.g. `MISE_CACHE_DIR="$PWD/.mise/cache" MISE_DATA_DIR="$PWD/.mise/data" MISE_STATE_DIR="$PWD/.mise/state" MISE_CONFIG_DIR="$PWD/.mise/config" MISE_TMP_DIR="$PWD/.mise/tmp" mise run fmt-lua-check`.
+- Note: `.mise.toml` `[env]` only affects task subprocesses; it does not change where the `mise` process itself writes its cache/state (those must be set in the environment before invoking `mise`).
 
 ## Factorio API Usage (MUST)
 
@@ -104,6 +106,7 @@ Quick docs lookups:
 - Register new modules in the FactorioTest init list in `control.lua` (under the `script.active_mods["factorio-test"]` gate).
 - Any helper interfaces for tests should be added only inside that gate so they never ship into normal gameplay.
 - **MUST** check our prototypes (especially `data.lua`) before assuming entity inventories/slots exist; many entities intentionally have inventories disabled (e.g., spiderlings may not have a usable trunk).
+- Spiders recalled via `scripts/spider.lua` return the entity’s placeable item (`LuaEntityPrototype.items_to_place_this[1]`), not always a hardcoded `"spiderling"`. Tests that register non-spiderling spider entities (e.g., `spidertron`) should assert the appropriate returned item.
 
 ### Test patterns (Preferred)
 
