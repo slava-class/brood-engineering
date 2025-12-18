@@ -909,6 +909,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
 
     require("__factorio-test__/init")({
         "tests/assignment_limit_test",
+        "tests/assignment_tracking_integrity_test",
         "tests/tasks_test",
         "tests/spider_test",
         "tests/deploy_recall_test",

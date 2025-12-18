@@ -31,6 +31,10 @@ Use the `mise run docs` command liberally during development (and while writing 
 It wraps the local `factorio-llm-docs` corpus (search/get/open) and defaults to a checkout at `~/workspace/factorio-llm-docs`.
 If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-llm-docs`.
 
+Codex CLI note:
+
+- In approval-gated runs (especially `approval_policy=untrusted`), `mise run docs -- ...` may be aborted until the user approves the command. If that happens, re-run it while explicitly requesting approval (with a 1-sentence justification).
+
 ## Factorio API Usage (MUST)
 
 When writing gameplay code or tests, you **MUST** look up the Factorio API in the offline docs before using **any** Factorio runtime/prototype API. Do not guess signatures, return values, or calling conventions.
