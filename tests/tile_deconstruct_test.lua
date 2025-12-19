@@ -3,6 +3,7 @@ local anchor = require("scripts/anchor")
 local tasks = require("scripts/tasks")
 local constants = require("scripts/constants")
 local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
+local fapi = require("scripts/fapi")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("tile deconstruction", function()
@@ -14,8 +15,8 @@ test_utils.describe_anchor_test("tile deconstruction", function()
 end, function(ctx)
     test("removes deconstruct-marked stone-path tile", function()
         local tile_pos = ctx.pos({ x = 2, y = 0 })
-        ctx.surface.set_tiles({ { name = "grass-1", position = tile_pos } }, true)
-        ctx.surface.set_tiles({ { name = "stone-path", position = tile_pos } }, true)
+        fapi.set_tiles(ctx.surface, { { name = "grass-1", position = tile_pos } }, true)
+        fapi.set_tiles(ctx.surface, { { name = "stone-path", position = tile_pos } }, true)
 
         local tile = ctx.surface.get_tile(tile_pos)
         tile.order_deconstruction(ctx.force)
@@ -61,8 +62,8 @@ end, function(ctx)
         }
 
         for _, tile_pos in ipairs(tile_positions) do
-            ctx.surface.set_tiles({ { name = "grass-1", position = tile_pos } }, true)
-            ctx.surface.set_tiles({ { name = "stone-path", position = tile_pos } }, true)
+            fapi.set_tiles(ctx.surface, { { name = "grass-1", position = tile_pos } }, true)
+            fapi.set_tiles(ctx.surface, { { name = "stone-path", position = tile_pos } }, true)
 
             local tile = ctx.surface.get_tile(tile_pos)
             tile.order_deconstruction(ctx.force)

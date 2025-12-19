@@ -1,5 +1,36 @@
 local fapi = {}
 
+---@class FapiDestroyOpts
+---@field do_cliff_correction boolean? nil
+---@field raise_destroy boolean? nil
+---@field player PlayerIdentification? nil
+---@field undo_index uint32? nil
+
+---@param entity LuaEntity
+---@param opts FapiDestroyOpts?
+---@return boolean ok
+function fapi.destroy(entity, opts)
+    if not (entity and entity.valid) then
+        return false
+    end
+    if not opts then
+        return entity.destroy({})
+    end
+    return entity.destroy(opts)
+end
+
+---@param entity LuaEntity
+---@return boolean ok
+function fapi.destroy_quiet(entity)
+    return fapi.destroy(entity, { raise_destroy = false })
+end
+
+---@param entity LuaEntity
+---@return boolean ok
+function fapi.destroy_raise(entity)
+    return fapi.destroy(entity, { raise_destroy = true })
+end
+
 ---@param surface LuaSurface
 ---@param entity_name EntityID
 ---@param center MapPosition

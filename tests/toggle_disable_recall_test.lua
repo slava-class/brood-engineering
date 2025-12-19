@@ -1,5 +1,7 @@
 local spider = require("scripts/spider")
 local utils = require("scripts/utils")
+local anchor = require("scripts/anchor")
+local fapi = require("scripts/fapi")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("toggle disable recall", function()
@@ -70,7 +72,7 @@ end, function(ctx)
                 ctx.anchor_data.spiders[spider_id] = nil
             end
             if e and e.valid then
-                e.destroy({ raise_destroy = false })
+                fapi.destroy_quiet(e)
             end
         end)
 
@@ -88,5 +90,29 @@ end, function(ctx)
         assert.is_true(inv.get_item_count({ name = "copper-plate", quality = "normal" }) >= 3)
         assert.is_nil(test_utils.find_spider_data(ctx, spider_id))
         assert.is_nil(storage.spider_to_anchor[spider_id])
+    end)
+
+    test("re-enabling does not auto-deploy when there is no executable work", function()
+        local inv = ctx.anchor_inventory
+        assert(inv and inv.valid)
+        inv.clear()
+        inv.insert({ name = "spiderling", count = 3, quality = "normal" })
+
+        ctx.clear_area(ctx.base_pos, 25)
+        ctx.assert_no_ghosts({
+            { ctx.base_pos.x - 10, ctx.base_pos.y - 10 },
+            { ctx.base_pos.x + 10, ctx.base_pos.y + 10 },
+        })
+
+        storage.global_enabled = false
+        test_utils.press_brood_toggle(1)
+        assert.is_true(storage.global_enabled)
+
+        for _ = 1, 3 do
+            test_utils.run_main_loop()
+        end
+
+        assert.are_equal(0, anchor.get_spider_count(ctx.anchor_data))
+        assert.are_equal(3, inv.get_item_count("spiderling"))
     end)
 end)

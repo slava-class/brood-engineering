@@ -929,6 +929,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         "tests/module_insert_test",
         "tests/recall_spill_test",
         "tests/toggle_disable_recall_test",
+        "tests/disable_while_moving_test",
     }, {
         log_passed_tests = true,
         log_skipped_tests = true,

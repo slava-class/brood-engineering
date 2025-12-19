@@ -3,6 +3,7 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local fapi = require("scripts/fapi")
 
 local behavior = {
     name = "item_proxy",
@@ -347,7 +348,7 @@ function behavior.execute(spider_data, proxy, inventory, anchor_data)
         local has_insert = insert_plan and insert_plan[1]
         local has_remove = removal_plan and removal_plan[1]
         if not has_requests and not has_insert and not has_remove then
-            proxy.destroy({ raise_destroy = false })
+            fapi.destroy_quiet(proxy)
         end
     end
     return did_something

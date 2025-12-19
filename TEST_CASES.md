@@ -23,8 +23,8 @@ The most valuable “true E2E for Brood” blueprint tests are the ones that ass
 ### Global enable/disable + recall correctness
 - [ ] P0: Disabling via `brood-toggle` recalls all deployed spiders and returns **spiderling item** to anchor inventory (or spills if full).
 - [ ] P0: Disable recalls also return **carried spider inventories** (trunk/ammo/trash) into the anchor, spilling overflow (regression for “items lost on recall”).
-- [ ] P0: Re-enabling does not auto-deploy when there is no executable work (no “thrash deploy/recall”).
-- [ ] P0: Disabling while spiders are `moving_to_task` clears assignments and does not leave `storage.assigned_tasks` entries behind.
+- [x] P0: Re-enabling does not auto-deploy when there is no executable work (no “thrash deploy/recall”).
+- [x] P0: Disabling while spiders are `moving_to_task` clears assignments and does not leave `storage.assigned_tasks` entries behind.
 
 ### Assignment tracking integrity
 - [ ] P0: `tasks.execute` clears `storage.assigned_tasks[task.id]` on success and on failure (e.g., target invalid mid-execution).
@@ -121,4 +121,3 @@ The most valuable “true E2E for Brood” blueprint tests are the ones that ass
 ### Ghost placement is only a setup step (Brood E2E starts after)
 - [ ] P?: Given ghosts created programmatically (no string), Brood builds them, consumes items, and clears ghosts.
 - [ ] P?: Given module proxies created programmatically (no string), Brood satisfies and clears them.
-

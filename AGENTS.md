@@ -159,3 +159,5 @@ Quick docs lookups:
 - Use `ctx.defer(...)` for cleanup (restore constants, destroy temporary inventories/entities, etc).
 - Anchor suites: prefer `test_utils.anchor_opts.chest/character({ x_base=..., radii=..., spiderlings=... })`; `anchor_id_prefix` is auto-derived from suite name.
 - Prefer `ctx.anchor_inventory` (already resolved) vs calling `test_utils.anchor_inventory(...)` repeatedly; use `ctx.assert_no_ghosts(...)` helpers where relevant.
+- If a test is specifically about **post-assignment behavior** (recall/cleanup/disable), it is OK to call `spider.assign_task(...)` directly for deterministic setup; otherwise rely on the normal main-loop assignment path.
+- When a test places work far from the anchor, call `test_utils.ensure_chunks(surface, pos, radius)` to avoid placement/pathing variability in ungenerated chunks.

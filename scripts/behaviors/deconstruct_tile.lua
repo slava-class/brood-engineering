@@ -3,6 +3,7 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local fapi = require("scripts/fapi")
 
 local behavior = {
     name = "deconstruct_tile",
@@ -236,7 +237,7 @@ local function sweep_drops_into_inventory(inventory, drops, want)
             end
 
             if inserted >= stack.count then
-                drop.destroy({ raise_destroy = true })
+                fapi.destroy_raise(drop)
             else
                 stack.count = stack.count - inserted
             end
@@ -480,7 +481,7 @@ function behavior.execute(spider_data, tile, inventory, anchor_data)
     local replaced = false
     pcall(function()
         if surface and (surface.valid == nil or surface.valid) then
-            surface.set_tiles({ { name = replacement, position = position } }, true)
+            fapi.set_tiles(surface, { { name = replacement, position = position } }, true)
             local after_tile = surface.get_tile(position)
             replaced = (after_tile and after_tile.valid and after_tile.name == replacement) or false
         end

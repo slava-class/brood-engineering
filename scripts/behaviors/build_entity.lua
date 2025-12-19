@@ -169,7 +169,7 @@ function behavior.execute(spider_data, ghost, inventory, anchor_data)
         local reposition = find_reposition(spider_entity, ghost, 6)
         if reposition then
             pcall(function()
-                spider_entity.teleport(reposition)
+                fapi.teleport(spider_entity, reposition)
             end)
         end
 

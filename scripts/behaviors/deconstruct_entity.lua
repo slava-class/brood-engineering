@@ -3,6 +3,7 @@
 
 local constants = require("scripts/constants")
 local utils = require("scripts/utils")
+local fapi = require("scripts/fapi")
 
 local behavior = {
     name = "deconstruct_entity",
@@ -117,7 +118,7 @@ local function pick_up_item_entity(inventory, item_entity)
     end
 
     if inserted >= stack.count then
-        item_entity.destroy({ raise_destroy = true })
+        fapi.destroy_raise(item_entity)
     else
         stack.count = stack.count - inserted
     end
@@ -459,7 +460,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             local item = { name = "cliff-explosives", quality = quality_name }
             if utils.inventory_has_item(inventory, item) then
                 inventory.remove({ name = "cliff-explosives", count = 1, quality = quality_name })
-                entity.destroy({ raise_destroy = true })
+                fapi.destroy_raise(entity)
                 return true
             end
         end
@@ -530,7 +531,7 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
     insert_transport_line_contents(entity, inventory, spill_surface, spill_position)
     transfer_all_entity_inventories(entity, inventory, spill_surface, spill_position)
     insert_mined_products(entity, inventory, quality_name, spill_surface, spill_position)
-    entity.destroy({ raise_destroy = true })
+    fapi.destroy_raise(entity)
 
     return not (entity and entity.valid)
 end

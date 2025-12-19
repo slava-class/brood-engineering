@@ -1,5 +1,6 @@
 local deconstruct_entity = require("scripts/behaviors/deconstruct_entity")
 local spider = require("scripts/spider")
+local utils = require("scripts/utils")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("entity deconstruction", function()
@@ -61,12 +62,16 @@ end, function(ctx)
         assert.is_true(line and line.valid)
 
         local inserted_count = 2
-        ctx.surface.spill_item_stack({
-            position = target_pos,
-            stack = { name = "iron-plate", count = inserted_count, quality = "normal" },
+        local created, err = utils.spill_item_stack(ctx.surface, target_pos, {
+            name = "iron-plate",
+            count = inserted_count,
+            quality = "normal",
+        }, {
             allow_belts = false,
             max_radius = 0,
         })
+        assert.is_nil(err)
+        assert.is_true(created and #created > 0)
 
         belt.order_deconstruction(ctx.force)
 
@@ -157,12 +162,16 @@ end, function(ctx)
         local contents = line.get_contents()
         local on_belt = sum_named_counts(contents, "iron-plate")
         if on_belt < desired_count then
-            ctx.surface.spill_item_stack({
-                position = target_pos,
-                stack = { name = "iron-plate", count = desired_count, quality = "normal" },
+            local created, err = utils.spill_item_stack(ctx.surface, target_pos, {
+                name = "iron-plate",
+                count = desired_count,
+                quality = "normal",
+            }, {
                 allow_belts = true,
                 max_radius = 0,
             })
+            assert.is_nil(err)
+            assert.is_true(created and #created > 0)
             contents = line.get_contents()
             on_belt = sum_named_counts(contents, "iron-plate")
         end

@@ -1,5 +1,6 @@
 local constants = require("scripts/constants")
 local spider = require("scripts/spider")
+local fapi = require("scripts/fapi")
 local test_utils = require("tests/test_utils")
 
 test_utils.describe_anchor_test("idle recall after finishing work", function()
@@ -76,7 +77,7 @@ end, function(ctx)
                         pm_ctx.state.idle_since_tick = tick
 
                         -- Nudge the anchor slightly; spider should keep following while idle.
-                        ctx.anchor_entity.teleport({ x = ctx.base_pos.x + 1, y = ctx.base_pos.y })
+                        fapi.teleport(ctx.anchor_entity, { x = ctx.base_pos.x + 1, y = ctx.base_pos.y })
                         return "waiting_recall"
                     end
 

@@ -43,7 +43,7 @@ run = "bash bin/fdocs"
 # must be set in the shell environment before invoking `mise` if you want to silence
 # `mise WARN failed to write cache file ...`.
 MISE_CACHE_DIR = ".mise/cache"
-MISE_DATA_DIR = ".mise/data"
-MISE_STATE_DIR = ".mise/state"
-MISE_CONFIG_DIR = ".mise/config"
-MISE_TMP_DIR = ".mise/tmp"
+# MISE_DATA_DIR = ".mise/data"
+# MISE_STATE_DIR = ".mise/state"
+# MISE_CONFIG_DIR = ".mise/config"
+# MISE_TMP_DIR = ".mise/tmp"

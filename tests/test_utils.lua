@@ -553,7 +553,7 @@ function M.destroy_tracked(created)
     for _, e in ipairs(created or {}) do
         if e and e.valid then
             pcall(function()
-                e.destroy({ raise_destroy = false })
+                fapi.destroy_quiet(e)
             end)
         end
     end
@@ -1092,7 +1092,7 @@ function M.clear_area(surface, position, radius, opts)
             if skip_spiders and entity.type == "spider-vehicle" then
                 goto continue
             end
-            entity.destroy({ raise_destroy = false })
+            fapi.destroy_quiet(entity)
         end
         ::continue::
     end
@@ -1184,7 +1184,7 @@ function M.sanitize_area(surface, area, opts)
                     goto continue_destroy
                 end
                 pcall(function()
-                    e.destroy({ raise_destroy = false })
+                    fapi.destroy_quiet(e)
                 end)
             end
             ::continue_destroy::
@@ -1200,7 +1200,7 @@ function M.sanitize_area(surface, area, opts)
         do
             if e and e.valid then
                 pcall(function()
-                    e.destroy({ raise_destroy = false })
+                    fapi.destroy_quiet(e)
                 end)
             end
         end

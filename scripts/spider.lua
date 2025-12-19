@@ -326,7 +326,7 @@ function spider.recall(spider_id)
             -- No valid anchor inventory; ensure the spiderling item isn't lost.
             spill(recall_item)
         end
-        spider_entity.destroy({ raise_destroy = false })
+        fapi.destroy_quiet(spider_entity)
     end
 
     -- Clean up tracking
@@ -630,7 +630,7 @@ function spider.jump(spider_id)
             local valid_pos =
                 fapi.find_non_colliding_position(surface, "spiderling", desired_pos, constants.jump_distance * 2, 0.5)
             if valid_pos then
-                spider_entity.teleport(valid_pos)
+                fapi.teleport(spider_entity, valid_pos)
             end
         end
 
@@ -650,7 +650,7 @@ function spider.jump(spider_id)
     }
     local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", fallback_pos, jump_dist * 2, 0.5)
     if valid_pos then
-        spider_entity.teleport(valid_pos)
+        fapi.teleport(spider_entity, valid_pos)
     end
 
     spider.clear_task(spider_id)
