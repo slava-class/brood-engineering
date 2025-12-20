@@ -517,6 +517,15 @@ function behavior.execute(spider_data, entity, inventory, anchor_data)
             return control.mine_entity(entity, true)
         end)
         if ok and mined == true then
+            if anchor_data and anchor_data.player_index then
+                local player = game and game.get_player(anchor_data.player_index)
+                if player and player.valid and player.clear_local_flying_texts then
+                    local ok_clear = pcall(player.clear_local_flying_texts)
+                    if not ok_clear then
+                        pcall(player.clear_local_flying_texts, player)
+                    end
+                end
+            end
             if surface and area then
                 sweep_spills(inventory, surface, area)
             end

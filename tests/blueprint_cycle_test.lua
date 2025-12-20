@@ -171,6 +171,7 @@ end, function(ctx)
                 force = force,
                 direction = def.direction,
                 expires = false,
+                raise_built = true,
             }))
             assert.is_true(ghost and ghost.valid, "failed to create ghost for " .. tostring(name))
 
@@ -229,6 +230,7 @@ end, function(ctx)
                     inner_name = name,
                     position = pos,
                     force = force,
+                    raise_built = true,
                 }))
                 assert.is_true(ghost and ghost.valid, "failed to create tile ghost for " .. tostring(name))
                 ghosts[#ghosts + 1] = ghost

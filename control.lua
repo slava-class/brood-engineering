@@ -25,6 +25,8 @@ local function setup_storage()
     storage.global_enabled = storage.global_enabled ~= false -- default true
     storage.anchor_id_counter = storage.anchor_id_counter or 0
     storage.spider_id_counter = storage.spider_id_counter or 0
+    storage.task_queue = storage.task_queue or { by_id = {}, by_surface = {}, revision = 0 }
+    storage.path_requests = storage.path_requests or {}
     -- Deprecated: older versions used this for tile deconstruction confirmation.
     storage.pending_tile_deconstruct = nil
 
@@ -180,16 +182,14 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
                 spider.recall(spider_id)
                 return
             end
+            spider.ensure_follow_anchor(spider_id, anchor_data, { clear_nav = true })
         else
             -- Not near anchor, walking back
             spider_data.idle_since = nil
 
-            -- Make sure follow target is set
-            local anchor_entity = anchor_data.entity
-            if anchor_entity and anchor_entity.valid then
-                if spider_entity.follow_target ~= anchor_entity then
-                    spider_entity.follow_target = anchor_entity
-                end
+            spider.ensure_return_navigation(spider_id, anchor_data)
+            if spider.is_return_stuck(spider_data) then
+                spider.jump(spider_id)
             end
         end
     elseif status == "moving_to_task" then
@@ -198,6 +198,8 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
             spider.clear_task(spider_id)
             return
         end
+
+        spider.ensure_navigation(spider_id)
 
         -- Execute tasks when we're "close enough", even if the autopilot completion
         -- event doesn't fire or the destination list isn't cleared.
@@ -209,6 +211,12 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
 
             local spider_pos = spider_entity.position
             local threshold = constants.task_arrival_distance
+            local behavior_name = spider_data.task and spider_data.task.behavior_name or nil
+            if behavior_name == "build_tile"
+                or behavior_name == "build_foundation"
+                or behavior_name == "deconstruct_tile" then
+                threshold = math.max(constants.tile_task_arrival_distance, threshold)
+            end
             if threshold < 1.0 then
                 threshold = 1.0
             end
@@ -220,6 +228,11 @@ local function process_spider(spider_id, spider_data, anchor_data, inventory, an
 
             local approach = spider_data.task.approach_position
             if approach and utils.distance(spider_pos, approach) < threshold then
+                return true
+            end
+
+            local nav_dest = spider_data.nav and spider_data.nav.destination or nil
+            if nav_dest and utils.distance(spider_pos, nav_dest) < threshold then
                 return true
             end
 
@@ -321,6 +334,9 @@ local function main_loop()
             return
         end
         local force = anchor.get_force(anchor_data)
+
+        -- Item-request-proxies don't reliably raise build events, so re-discover them in-area.
+        tasks.enqueue_item_proxies(surface, anchor_area, force)
 
         -- Check if any executable work exists in the area around this anchor
         local work_exists = tasks.exist_executable_in_area(surface, anchor_area, force, inventory)
@@ -501,6 +517,7 @@ local function main_loop()
     -- Periodic cleanup
     if game.tick % 300 == 0 then
         tasks.cleanup_stale()
+        tasks.cleanup_invalid()
     end
 end
 
@@ -617,8 +634,44 @@ local function on_player_driving_changed_state(event)
 end
 
 ---------------------------------------------------------------------------
+-- TASK DISCOVERY (EVENT-DRIVEN)
+---------------------------------------------------------------------------
+
+local function on_built_entity(event)
+    tasks.handle_built_entity(event.entity)
+end
+
+local function on_robot_built_entity(event)
+    tasks.handle_built_entity(event.entity)
+end
+
+local function on_script_raised_built(event)
+    tasks.handle_built_entity(event.entity)
+end
+
+local function on_marked_for_deconstruction(event)
+    tasks.handle_marked_for_deconstruction(event.entity, event.player_index)
+end
+
+local function on_cancelled_deconstruction(event)
+    tasks.handle_cancelled_deconstruction(event.entity)
+end
+
+local function on_marked_for_upgrade(event)
+    tasks.handle_marked_for_upgrade(event.entity)
+end
+
+local function on_cancelled_upgrade(event)
+    tasks.handle_cancelled_upgrade(event.entity)
+end
+
+---------------------------------------------------------------------------
 -- SPIDER DEATH
 ---------------------------------------------------------------------------
+
+local function on_script_path_request_finished(event)
+    spider.handle_path_request_finished(event)
+end
 
 local function on_entity_died(event)
     local entity = event.entity
@@ -711,7 +764,14 @@ local function on_spider_command_completed(event)
         local last_dest = destinations[#destinations]
         local dest_pos = last_dest and (last_dest.position or last_dest) or nil
         local dist_to_dest = dest_pos and utils.distance(vehicle.position, dest_pos) or math.huge
-        if dist_to_dest > constants.task_arrival_distance and not spider.has_arrived(spider_data) then
+        local threshold = constants.task_arrival_distance
+        local behavior_name = spider_data.task and spider_data.task.behavior_name or nil
+        if behavior_name == "build_tile"
+            or behavior_name == "build_foundation"
+            or behavior_name == "deconstruct_tile" then
+            threshold = math.max(constants.tile_task_arrival_distance, threshold)
+        end
+        if dist_to_dest > threshold and not spider.has_arrived(spider_data) then
             return
         end
     end
@@ -850,6 +910,16 @@ script.on_event(defines.events.on_player_created, on_player_created)
 script.on_event(defines.events.on_player_removed, on_player_removed)
 script.on_event(defines.events.on_player_changed_surface, on_player_changed_surface)
 script.on_event(defines.events.on_player_driving_changed_state, on_player_driving_changed_state)
+
+-- Task discovery events
+script.on_event(defines.events.on_built_entity, on_built_entity)
+script.on_event(defines.events.on_robot_built_entity, on_robot_built_entity)
+script.on_event(defines.events.script_raised_built, on_script_raised_built)
+script.on_event(defines.events.on_marked_for_deconstruction, on_marked_for_deconstruction)
+script.on_event(defines.events.on_cancelled_deconstruction, on_cancelled_deconstruction)
+script.on_event(defines.events.on_marked_for_upgrade, on_marked_for_upgrade)
+script.on_event(defines.events.on_cancelled_upgrade, on_cancelled_upgrade)
+script.on_event(defines.events.on_script_path_request_finished, on_script_path_request_finished)
 
 -- Spider death
 script.on_event(defines.events.on_entity_died, on_entity_died)

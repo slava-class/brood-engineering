@@ -194,7 +194,7 @@ end, function(ctx)
                         surface = ctx.surface,
                         force = ctx.force.name,
                         position = build_pos,
-                        raise_built = false,
+                        raise_built = true,
                         skip_fog_of_war = true,
                     })
                 end)

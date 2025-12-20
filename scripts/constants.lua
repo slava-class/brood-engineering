@@ -51,8 +51,47 @@ local constants = {
     -- If anchor moves this far in one tick, teleport spiders
     teleport_threshold = 50,
 
-    -- Jump distance when stuck
-    jump_distance = 4,
+    -- Nudge distance when stuck
+    jump_distance = 5,
+
+    -- Minimum distance before requesting a path (avoid tiny paths)
+    path_request_min_distance = 8,
+
+    -- Minimum ticks between path requests per spider
+    path_request_cooldown_ticks = 120,
+
+    -- Minimum ticks between stuck-triggered path requests
+    path_request_stuck_cooldown_ticks = 60,
+
+    -- Retry delay when the pathfinder is busy
+    path_retry_delay_ticks = 120,
+
+    -- Waypoint spacing when applying pathfinding results
+    path_waypoint_spacing = 6,
+
+    -- Max waypoints to enqueue for a path
+    path_max_waypoints = 24,
+
+    -- Follow offset radius around the anchor
+    follow_offset_radius = 3,
+
+    -- Minimum movement distance to consider as progress
+    stuck_move_threshold = 0.25,
+
+    -- Tile tasks can be executed from a bit farther away
+    tile_task_arrival_distance = 0,
+
+    -- How far from a tile ghost we search for a walkable approach point
+    tile_approach_search_radius = 10,
+
+    -- Only update return destinations if the anchor moved this far
+    return_destination_update_distance = 6,
+
+    -- Teleport to destination when stuck and already close enough
+    stuck_teleport_distance = 10,
+
+    -- Max distance moved while stuck to allow teleport recovery
+    stuck_teleport_max_move = 3,
 
     -- How long speed must be zero before considered stuck (ticks)
     stuck_timeout_ticks = 120, -- ~2 seconds

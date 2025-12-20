@@ -76,6 +76,190 @@ local function get_build_entity_approach_position(spider_entity, ghost)
     return best
 end
 
+---@param spider_id string
+---@return Vector
+local function compute_follow_offset(spider_id)
+    local n = tonumber(tostring(spider_id):match("%d+")) or 1
+    local angle = (n * 0.61803398875) * (2 * math.pi)
+    local radius = constants.follow_offset_radius
+    return { x = math.cos(angle) * radius, y = math.sin(angle) * radius }
+end
+
+---@param spider_entity LuaEntity
+local function clear_autopilot(spider_entity)
+    if not (spider_entity and spider_entity.valid) then
+        return
+    end
+    -- Writing nil clears all queued destinations.
+    spider_entity.autopilot_destination = nil
+end
+
+---@param spider_entity LuaEntity
+---@param waypoints MapPosition[]
+local function set_autopilot_path(spider_entity, waypoints)
+    if not (spider_entity and spider_entity.valid) then
+        return
+    end
+    clear_autopilot(spider_entity)
+    if not (waypoints and waypoints[1]) then
+        return
+    end
+    for _, waypoint in ipairs(waypoints) do
+        spider_entity.add_autopilot_destination(waypoint)
+    end
+end
+
+---@param anchor_entity LuaEntity
+---@param spider_entity LuaEntity
+---@param spider_id string
+local function follow_anchor(anchor_entity, spider_entity, spider_id)
+    if not (anchor_entity and anchor_entity.valid) then
+        return
+    end
+    if not (spider_entity and spider_entity.valid) then
+        return
+    end
+    clear_autopilot(spider_entity)
+    spider_entity.follow_target = anchor_entity
+    spider_entity.follow_offset = compute_follow_offset(spider_id)
+end
+
+---@param path PathfinderWaypoint[]
+---@param destination MapPosition?
+---@return MapPosition[]
+local function build_waypoints(path, destination)
+    local waypoints = {}
+    local last_pos = nil
+
+    for _, waypoint in ipairs(path) do
+        local pos = waypoint and (waypoint.position or waypoint) or nil
+        if pos then
+            if not last_pos or utils.distance(last_pos, pos) >= constants.path_waypoint_spacing then
+                waypoints[#waypoints + 1] = { x = pos.x, y = pos.y }
+                last_pos = pos
+                if #waypoints >= constants.path_max_waypoints then
+                    break
+                end
+            end
+        end
+    end
+
+    if destination then
+        local last = waypoints[#waypoints]
+        if not last or utils.distance(last, destination) > 0.5 then
+            waypoints[#waypoints + 1] = { x = destination.x, y = destination.y }
+        end
+    end
+
+    return waypoints
+end
+
+---@param spider_id string
+---@param spider_data table
+---@param destination MapPosition
+---@param kind "task"|"return"
+---@param task_id string?
+---@param opts { force?: boolean }?
+---@return uint32? request_id
+local function request_path(spider_id, spider_data, destination, kind, task_id, opts)
+    if not (destination and spider_data) then
+        return nil
+    end
+
+    local spider_entity = spider_data.entity
+    if not (spider_entity and spider_entity.valid) then
+        return nil
+    end
+
+    local nav = spider_data.nav or {}
+    local force_request = opts and opts.force or false
+    local cooldown = force_request and constants.path_request_stuck_cooldown_ticks or constants.path_request_cooldown_ticks
+    if nav.last_request_tick and (game.tick - nav.last_request_tick) < cooldown then
+        return nil
+    end
+
+    local distance = utils.distance(spider_entity.position, destination)
+    if not force_request and distance < constants.path_request_min_distance then
+        return nil
+    end
+
+    local prototype = spider_entity.prototype
+    if not (prototype and prototype.collision_box and prototype.collision_mask) then
+        return nil
+    end
+
+    local surface = spider_entity.surface
+    if not (surface and (surface.valid == nil or surface.valid)) then
+        return nil
+    end
+
+    local id = surface.request_path({
+        bounding_box = prototype.collision_box,
+        collision_mask = prototype.collision_mask,
+        start = spider_entity.position,
+        goal = destination,
+        force = spider_entity.force,
+        pathfind_flags = {
+            allow_paths_through_own_entities = true,
+            cache = true,
+        },
+        entity_to_ignore = spider_entity,
+    })
+
+    if not id then
+        return nil
+    end
+
+    storage.path_requests = storage.path_requests or {}
+    storage.path_requests[id] = {
+        spider_id = spider_id,
+        anchor_id = spider_data.anchor_id,
+        task_id = task_id,
+        kind = kind,
+        destination = { x = destination.x, y = destination.y },
+        requested_tick = game.tick,
+    }
+
+    nav.request_id = id
+    nav.last_request_tick = game.tick
+    nav.pending_retry = false
+    nav.kind = kind
+    nav.task_id = task_id
+    nav.destination = { x = destination.x, y = destination.y }
+    spider_data.nav = nav
+
+    return id
+end
+
+---@param spider_data table
+local function clear_navigation(spider_data)
+    if not spider_data then
+        return
+    end
+    local nav = spider_data.nav
+    if nav and nav.request_id and storage.path_requests then
+        storage.path_requests[nav.request_id] = nil
+    end
+    spider_data.nav = nil
+    spider_data.last_position = nil
+    spider_data.last_move_tick = nil
+    spider_data.stuck_since = nil
+    spider_data.stuck_origin = nil
+end
+
+---@param behavior_name string?
+---@return number
+local function arrival_distance_for_behavior(behavior_name)
+    if
+        behavior_name == "build_tile"
+        or behavior_name == "build_foundation"
+        or behavior_name == "deconstruct_tile"
+    then
+        return math.max(constants.tile_task_arrival_distance, constants.task_arrival_distance)
+    end
+    return constants.task_arrival_distance
+end
+
 --- Generate unique spider ID
 ---@return string
 local function generate_spider_id()
@@ -161,12 +345,14 @@ function spider.deploy(anchor_id)
     -- Create spider data
     local spider_id = generate_spider_id()
     local spider_data = {
+        id = spider_id,
         entity = spider_entity,
         entity_id = entity_id,
         anchor_id = anchor_id,
         status = "deployed_idle",
         task = nil,
         idle_since = nil,
+        nav = nil,
     }
 
     -- Store in anchor and global tracking
@@ -178,7 +364,7 @@ function spider.deploy(anchor_id)
     update_spider_color(spider_entity, "deployed_idle")
 
     -- Set follow target to anchor
-    spider_entity.follow_target = anchor_entity
+    follow_anchor(anchor_entity, spider_entity, spider_id)
 
     utils.log("Deployed spider " .. spider_id .. " for anchor " .. anchor_id)
     return spider_id
@@ -209,6 +395,7 @@ function spider.recall(spider_id)
     if spider_data.task and spider_data.task.id then
         storage.assigned_tasks[spider_data.task.id] = nil
     end
+    clear_navigation(spider_data)
 
     -- Return item to inventory if entity is valid
     if spider_entity and spider_entity.valid then
@@ -387,36 +574,15 @@ function spider.complete_task(spider_id)
     spider_data.task = nil
     spider_data.status = "deployed_idle"
     spider_data.idle_since = nil
+    clear_navigation(spider_data)
 
     update_spider_color(spider_data.entity, "deployed_idle")
 
     -- Set follow target back to anchor
     local spider_entity = spider_data.entity
     if spider_entity and spider_entity.valid then
-        -- Ensure any leftover autopilot destinations are cleared so the spider
-        -- truly returns to idle/following state.
-        pcall(function()
-            if spider_entity.clear_autopilot_destinations then
-                spider_entity.clear_autopilot_destinations()
-            end
-        end)
-        pcall(function()
-            local destinations = spider_entity.autopilot_destinations
-            if destinations then
-                for i = #destinations, 1, -1 do
-                    spider_entity.remove_autopilot_destination(i)
-                end
-            end
-        end)
-        pcall(function()
-            spider_entity.autopilot_destinations = {}
-        end)
-        spider_entity.autopilot_destination = nil
-
         local anchor_entity = anchor_data.entity
-        if anchor_entity and anchor_entity.valid then
-            spider_entity.follow_target = anchor_entity
-        end
+        follow_anchor(anchor_entity, spider_entity, spider_id)
     end
 end
 
@@ -443,6 +609,8 @@ function spider.assign_task(spider_id, task)
     if not spider_entity or not spider_entity.valid then
         return
     end
+
+    clear_navigation(spider_data)
 
     -- Track task assignment
     if task.id then
@@ -476,12 +644,33 @@ function spider.assign_task(spider_id, task)
 
         -- Default: find a nearby non-colliding position close to the target.
         if not dest then
-            dest = fapi.find_non_colliding_position(surface, "spiderling", target_pos, 5, 0.5) or target_pos
+            local search_radius = constants.tile_approach_search_radius
+            if task.behavior_name ~= "build_tile"
+                and task.behavior_name ~= "build_foundation"
+                and task.behavior_name ~= "deconstruct_tile" then
+                search_radius = 5
+            else
+                search_radius = math.min(search_radius, constants.tile_task_arrival_distance)
+            end
+            dest = fapi.find_non_colliding_position(surface, "spiderling", target_pos, search_radius, 0.5) or target_pos
         end
 
         task.approach_position = dest
 
-        spider_entity.autopilot_destination = dest
+        spider_data.nav = {
+            kind = "task",
+            destination = { x = dest.x, y = dest.y },
+            task_id = task.id,
+            request_id = nil,
+            last_request_tick = nil,
+            pending_retry = false,
+        }
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        spider_data.stuck_since = nil
+
+        set_autopilot_path(spider_entity, { dest })
+        request_path(spider_id, spider_data, dest, "task", task.id)
     end
 end
 
@@ -510,35 +699,16 @@ function spider.clear_task(spider_id)
 
     spider_data.task = nil
     spider_data.status = "deployed_idle"
+    clear_navigation(spider_data)
 
     update_spider_color(spider_data.entity, "deployed_idle")
 
     -- Resume following anchor
     local spider_entity = spider_data.entity
     if spider_entity and spider_entity.valid then
-        -- Clear any queued autopilot destinations as well as the current one.
-        -- Some LuaEntity keys are not safe to probe directly; use pcall.
-        pcall(function()
-            if spider_entity.clear_autopilot_destinations then
-                spider_entity.clear_autopilot_destinations()
-            end
-        end)
-        pcall(function()
-            local destinations = spider_entity.autopilot_destinations
-            if destinations then
-                for i = #destinations, 1, -1 do
-                    spider_entity.remove_autopilot_destination(i)
-                end
-            end
-        end)
-        pcall(function()
-            spider_entity.autopilot_destinations = {}
-        end)
-        spider_entity.autopilot_destination = nil
+        clear_autopilot(spider_entity)
         local anchor_entity = anchor_data.entity
-        if anchor_entity and anchor_entity.valid then
-            spider_entity.follow_target = anchor_entity
-        end
+        follow_anchor(anchor_entity, spider_entity, spider_id)
     end
 end
 
@@ -581,9 +751,6 @@ function spider.teleport_to_anchor(spider_id)
 
     -- Clear any task
     spider.clear_task(spider_id)
-
-    -- Update follow target
-    spider_entity.follow_target = anchor_entity
 end
 
 --- Make spider jump (when stuck)
@@ -610,52 +777,259 @@ function spider.jump(spider_id)
     end
     local anchor_entity = anchor_data.entity
 
-    local surface = spider_entity.surface
-    local current_pos = spider_entity.position
-
-    -- Prefer jumping toward the current task to guarantee progress.
-    local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
-    if target and target.valid then
-        local tp = target.position
-        local dx = tp.x - current_pos.x
-        local dy = tp.y - current_pos.y
-        local dist = math.sqrt(dx * dx + dy * dy)
-        local jump_dist = math.min(constants.jump_distance, dist)
-
-        if dist > 0 and jump_dist > 0 then
-            local desired_pos = {
-                x = current_pos.x + (dx / dist) * jump_dist,
-                y = current_pos.y + (dy / dist) * jump_dist,
-            }
-            local valid_pos =
-                fapi.find_non_colliding_position(surface, "spiderling", desired_pos, constants.jump_distance * 2, 0.5)
-            if valid_pos then
-                fapi.teleport(spider_entity, valid_pos)
+    local destination = spider_data.nav and spider_data.nav.destination or nil
+    if destination then
+        local stuck_since = spider_data.stuck_since
+        if stuck_since and (game.tick - stuck_since) >= constants.stuck_timeout_ticks then
+            local stuck_origin = spider_data.stuck_origin
+            local moved = stuck_origin and utils.distance(spider_entity.position, stuck_origin) or math.huge
+            local dist_to_dest = utils.distance(spider_entity.position, destination)
+            if moved <= constants.stuck_teleport_max_move and dist_to_dest <= constants.stuck_teleport_distance then
+                local ok = fapi.teleport(spider_entity, destination, spider_entity.surface)
+                if not ok then
+                    local fallback = fapi.find_non_colliding_position(
+                        spider_entity.surface,
+                        "spiderling",
+                        destination,
+                        4,
+                        0.5
+                    )
+                    if fallback then
+                        fapi.teleport(spider_entity, fallback, spider_entity.surface)
+                    end
+                end
+                spider_data.stuck_since = nil
+                spider_data.stuck_origin = nil
+                spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+                spider_data.last_move_tick = game.tick
+                return
             end
         end
 
-        -- Re-path to current task after the hop.
-        spider_entity.autopilot_destination = fapi.find_non_colliding_position(surface, "spiderling", tp, 5, 0.5) or tp
-        spider_data.stuck_since = nil
-        return
+        local requested = request_path(spider_id, spider_data, destination, "task", spider_data.task and spider_data.task.id, {
+            force = true,
+        })
+        if requested then
+            return
+        end
     end
 
-    -- No valid task; jump in facing direction as a fallback.
-    local orientation = spider_entity.orientation or 0
-    local angle = orientation * 2 * math.pi
-    local jump_dist = constants.jump_distance
-    local fallback_pos = {
-        x = current_pos.x + jump_dist * math.sin(angle),
-        y = current_pos.y - jump_dist * math.cos(angle),
-    }
-    local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", fallback_pos, jump_dist * 2, 0.5)
+    local surface = spider_entity.surface
+    local current_pos = spider_entity.position
+
+    local desired_pos = nil
+    if destination then
+        local dx = destination.x - current_pos.x
+        local dy = destination.y - current_pos.y
+        local dist = math.sqrt(dx * dx + dy * dy)
+        local jump_dist = math.min(constants.jump_distance, dist)
+        if dist > 0 and jump_dist > 0 then
+            desired_pos = {
+                x = current_pos.x + (dx / dist) * jump_dist,
+                y = current_pos.y + (dy / dist) * jump_dist,
+            }
+        end
+    end
+
+    if not desired_pos then
+        local orientation = spider_entity.orientation or 0
+        local angle = orientation * 2 * math.pi
+        local jump_dist = constants.jump_distance
+        desired_pos = {
+            x = current_pos.x + jump_dist * math.sin(angle),
+            y = current_pos.y - jump_dist * math.cos(angle),
+        }
+    end
+
+    local valid_pos = fapi.find_non_colliding_position(surface, "spiderling", desired_pos, constants.jump_distance, 0.5)
+    if not valid_pos then
+        local search_box = {
+            { current_pos.x - constants.jump_distance, current_pos.y - constants.jump_distance },
+            { current_pos.x + constants.jump_distance, current_pos.y + constants.jump_distance },
+        }
+        valid_pos = surface.find_non_colliding_position_in_box("spiderling", search_box, 0.5)
+    end
+
     if valid_pos then
         fapi.teleport(spider_entity, valid_pos)
     end
 
+    if destination then
+        set_autopilot_path(spider_entity, { destination })
+        spider_data.stuck_since = nil
+        return
+    end
+
     spider.clear_task(spider_id)
-    if anchor_entity and anchor_entity.valid then
-        spider_entity.follow_target = anchor_entity
+    follow_anchor(anchor_entity, spider_entity, spider_id)
+end
+
+---@param event {id: uint32, path?: PathfinderWaypoint[], try_again_later: boolean}
+function spider.handle_path_request_finished(event)
+    if not (event and event.id) then
+        return
+    end
+
+    local requests = storage.path_requests
+    local entry = requests and requests[event.id] or nil
+    if not entry then
+        return
+    end
+    requests[event.id] = nil
+
+    local spider_id = entry.spider_id
+    local spider_data = spider.get(spider_id)
+    if not (spider_data and spider_data.nav) then
+        return
+    end
+
+    local nav = spider_data.nav
+    if nav.request_id ~= event.id then
+        return
+    end
+
+    nav.request_id = nil
+    nav.last_path_tick = game.tick
+
+    if entry.task_id and (not spider_data.task or spider_data.task.id ~= entry.task_id) then
+        return
+    end
+
+    if event.try_again_later then
+        nav.pending_retry = true
+        nav.retry_after_tick = game.tick + constants.path_retry_delay_ticks
+        return
+    end
+
+    local path = event.path
+    if not (path and path[1]) then
+        return
+    end
+
+    local waypoints = build_waypoints(path, entry.destination)
+    if not (waypoints and waypoints[1]) then
+        return
+    end
+
+    set_autopilot_path(spider_data.entity, waypoints)
+    nav.pending_retry = false
+    nav.retry_after_tick = nil
+    nav.destination = entry.destination
+end
+
+---@param spider_id string
+function spider.ensure_navigation(spider_id)
+    local spider_data = spider.get(spider_id)
+    if not spider_data then
+        return
+    end
+
+    local nav = spider_data.nav
+    if not (nav and nav.destination) then
+        return
+    end
+
+    if nav.request_id then
+        return
+    end
+
+    if nav.pending_retry and nav.retry_after_tick and game.tick < nav.retry_after_tick then
+        return
+    end
+
+    request_path(spider_id, spider_data, nav.destination, nav.kind or "task", nav.task_id)
+
+    local spider_entity = spider_data.entity
+    if not (spider_entity and spider_entity.valid) then
+        return
+    end
+
+    local destinations = spider_entity.autopilot_destinations
+    if not spider_entity.autopilot_destination and not (destinations and destinations[1]) then
+        set_autopilot_path(spider_entity, { nav.destination })
+    end
+end
+
+---@param spider_id string
+---@param anchor_data table
+---@param opts { clear_nav?: boolean }?
+function spider.ensure_follow_anchor(spider_id, anchor_data, opts)
+    if not anchor_data then
+        return
+    end
+
+    local spider_data = anchor_data.spiders and anchor_data.spiders[spider_id] or nil
+    if not spider_data then
+        return
+    end
+
+    local spider_entity = spider_data.entity
+    local anchor_entity = anchor_data.entity
+    if not (spider_entity and spider_entity.valid and anchor_entity and anchor_entity.valid) then
+        return
+    end
+
+    if opts and opts.clear_nav then
+        clear_navigation(spider_data)
+    end
+
+    if spider_entity.follow_target ~= anchor_entity or (opts and opts.clear_nav) then
+        follow_anchor(anchor_entity, spider_entity, spider_id)
+    end
+end
+
+---@param spider_id string
+---@param anchor_data table
+function spider.ensure_return_navigation(spider_id, anchor_data)
+    if not anchor_data then
+        return
+    end
+
+    local spider_data = anchor_data.spiders and anchor_data.spiders[spider_id] or nil
+    if not spider_data then
+        return
+    end
+
+    local spider_entity = spider_data.entity
+    local anchor_entity = anchor_data.entity
+    if not (spider_entity and spider_entity.valid and anchor_entity and anchor_entity.valid) then
+        return
+    end
+
+    local anchor_pos = anchor_data.position
+    local nav = spider_data.nav
+    local offset = compute_follow_offset(spider_id)
+    local desired = { x = anchor_pos.x + offset.x, y = anchor_pos.y + offset.y }
+
+    local function pick_destination()
+        return fapi.find_non_colliding_position(anchor_entity.surface, "spiderling", desired, 8, 0.5) or anchor_pos
+    end
+
+    if nav and nav.kind == "return" then
+        local prev = nav.anchor_position
+        local moved = prev and utils.distance(prev, anchor_pos) or math.huge
+        if moved >= constants.return_destination_update_distance then
+            nav.destination = pick_destination()
+            nav.anchor_position = { x = anchor_pos.x, y = anchor_pos.y }
+            nav.pending_retry = false
+            nav.retry_after_tick = nil
+            nav.request_id = nil
+            set_autopilot_path(spider_entity, { nav.destination })
+            request_path(spider_id, spider_data, nav.destination, "return", nil)
+        end
+    else
+        nav = {
+            kind = "return",
+            destination = pick_destination(),
+            anchor_position = { x = anchor_pos.x, y = anchor_pos.y },
+            request_id = nil,
+            last_request_tick = nil,
+            pending_retry = false,
+        }
+        spider_data.nav = nav
+        spider_entity.follow_target = nil
+        set_autopilot_path(spider_entity, { nav.destination })
+        request_path(spider_id, spider_data, nav.destination, "return", nil)
     end
 end
 
@@ -745,29 +1119,29 @@ function spider.has_arrived(spider_data)
         return false
     end
 
-    -- Prefer the planned approach position, but also accept proximity to the task target.
+    -- Prefer the planned destination, but also accept proximity to the task target.
     -- In practice spiders can end up close to the target even if the autopilot destination
     -- isn't cleared (or was adjusted by pathing/collisions).
-    local threshold = constants.task_arrival_distance
+    local threshold = arrival_distance_for_behavior(spider_data.task.behavior_name)
     if threshold < 1.0 then
         threshold = 1.0
     end
 
-    local arrive_pos = spider_data.task.approach_position
-    local dist_to_approach = arrive_pos and utils.distance(spider_entity.position, arrive_pos) or math.huge
+    local dest = spider_data.nav and spider_data.nav.destination or spider_data.task.approach_position
+    local dist_to_dest = dest and utils.distance(spider_entity.position, dest) or math.huge
     local dist_to_target = utils.distance(spider_entity.position, target.position)
 
-    local dist_to_dest = math.huge
+    local dist_to_queue = math.huge
     local destinations = spider_entity.autopilot_destinations
     if destinations and #destinations > 0 then
         local last_dest = destinations[#destinations]
         local dest_pos = last_dest and (last_dest.position or last_dest) or nil
         if dest_pos then
-            dist_to_dest = utils.distance(spider_entity.position, dest_pos)
+            dist_to_queue = utils.distance(spider_entity.position, dest_pos)
         end
     end
 
-    return math.min(dist_to_approach, dist_to_target, dist_to_dest) < threshold
+    return math.min(dist_to_dest, dist_to_target, dist_to_queue) < threshold
 end
 
 --- Check if spider is stuck (no speed)
@@ -786,19 +1160,113 @@ function spider.is_stuck(spider_data)
 
     local speed = spider_entity.speed or 0
     local target = spider_data.task and (spider_data.task.entity or spider_data.task.tile) or nil
-    local arrive_pos = spider_data.task and spider_data.task.approach_position
+    local arrive_pos = (spider_data.nav and spider_data.nav.destination)
+        or (spider_data.task and spider_data.task.approach_position)
         or (target and target.valid and target.position)
         or nil
     local dist = arrive_pos and utils.distance(spider_entity.position, arrive_pos) or math.huge
 
-    -- Reset timer if moving or close enough to execute
-    if speed > constants.stuck_speed_threshold or dist <= constants.task_arrival_distance then
+    local threshold = arrival_distance_for_behavior(spider_data.task and spider_data.task.behavior_name or nil)
+    if threshold < 1.0 then
+        threshold = 1.0
+    end
+
+    if dist <= threshold then
+        spider_data.stuck_since = nil
+        spider_data.stuck_origin = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    local last_pos = spider_data.last_position
+    if not last_pos then
+        spider_data.stuck_since = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    local moved = utils.distance(spider_entity.position, last_pos)
+
+    if moved >= constants.stuck_move_threshold or speed > constants.stuck_speed_threshold then
+        spider_data.stuck_since = nil
+        spider_data.stuck_origin = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    if not spider_data.stuck_since then
+        spider_data.stuck_since = game.tick
+        spider_data.stuck_origin = { x = spider_entity.position.x, y = spider_entity.position.y }
+    end
+    return (game.tick - spider_data.stuck_since) >= constants.stuck_timeout_ticks
+end
+
+---@param spider_data table
+---@param destination MapPosition?
+---@param threshold number
+---@return boolean
+local function is_stuck_toward(spider_data, destination, threshold)
+    local spider_entity = spider_data.entity
+    if not (spider_entity and spider_entity.valid) then
+        return false
+    end
+
+    if not destination then
         spider_data.stuck_since = nil
         return false
     end
 
-    spider_data.stuck_since = spider_data.stuck_since or game.tick
+    local dist = utils.distance(spider_entity.position, destination)
+    if dist <= threshold then
+        spider_data.stuck_since = nil
+        spider_data.stuck_origin = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    local last_pos = spider_data.last_position
+    if not last_pos then
+        spider_data.stuck_since = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    local moved = utils.distance(spider_entity.position, last_pos)
+    local speed = spider_entity.speed or 0
+    if moved >= constants.stuck_move_threshold or speed > constants.stuck_speed_threshold then
+        spider_data.stuck_since = nil
+        spider_data.stuck_origin = nil
+        spider_data.last_position = { x = spider_entity.position.x, y = spider_entity.position.y }
+        spider_data.last_move_tick = game.tick
+        return false
+    end
+
+    if not spider_data.stuck_since then
+        spider_data.stuck_since = game.tick
+        spider_data.stuck_origin = { x = spider_entity.position.x, y = spider_entity.position.y }
+    end
     return (game.tick - spider_data.stuck_since) >= constants.stuck_timeout_ticks
+end
+
+---@param spider_data table
+---@return boolean
+function spider.is_return_stuck(spider_data)
+    if not spider_data then
+        return false
+    end
+
+    local nav = spider_data.nav
+    if not (nav and nav.kind == "return") then
+        return false
+    end
+
+    local threshold = math.max(constants.near_anchor_threshold, constants.task_arrival_distance)
+    return is_stuck_toward(spider_data, nav.destination, threshold)
 end
 
 --- Check if spider is near its anchor

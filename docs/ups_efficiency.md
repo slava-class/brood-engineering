@@ -11,6 +11,20 @@ intended as an actionable roadmap rather than a design manifesto.
 - Keep behavior deterministic and testable.
 - Preserve the current gameplay feel (no unexpected delays or starvation).
 
+## Implementation Status (Current)
+
+- [x] Event-driven enqueue for entity ghosts and tile ghosts via `script_raised_built`
+- [x] Event-driven enqueue for deconstruction marks and cancellations
+- [x] Event-driven enqueue for upgrade marks and cancellations
+- [x] Queue-backed task selection (no periodic scan in the main loop)
+- [x] Chunk-based buckets for task lookup by area
+- [x] Lazy validity checks + periodic cleanup of invalid tasks
+- [ ] Event filters (`script.set_event_filter`) to reduce event chatter
+- [ ] Tile placement events (`on_player_built_tile`, `on_robot_built_tile`)
+- [ ] Token-bucket per-anchor budgets
+- [ ] Anchor tick staggering
+- [ ] Lightweight counters/overlay for queue throughput
+
 ## Constraints and Facts (Based on Runtime API)
 
 - There is no API to ask “what changed near position X since last time”.
@@ -32,6 +46,7 @@ need to repair or rebuild queues.
 Entity ghosts and builds:
 - `defines.events.on_built_entity`
 - `defines.events.on_robot_built_entity`
+- `defines.events.script_raised_built`
 
 Tile ghosts and builds:
 - `defines.events.on_player_built_tile`
@@ -66,6 +81,8 @@ Notes:
   or remove it from the queue (lazy removal is OK if validity checks exist).
 - Maintain a per-surface “revision counter” and bump it when an event arrives.
   Anchors can compare `last_revision` to decide if cached work is stale.
+- The current implementation uses a global queue keyed by surface+chunk and
+  treats scans as legacy-only (`scripts/tasks_scan.lua`).
 
 ## Work Queues + Long-Term Budgets
 
@@ -83,9 +100,8 @@ Benefits:
 ### Queue structure
 
 - `task_by_id` map for lookup.
-- `task_ids` array for iteration in priority order.
-- Use “swap-remove” for O(1) removals in arrays.
-- Store minimal task fields (position, type, entity ref, created_tick).
+- Per-surface `by_chunk` buckets keyed by `chunk_x:chunk_y`.
+- Store minimal task fields (position, type, entity ref, force name, priority).
 
 ### Long-term fairness
 

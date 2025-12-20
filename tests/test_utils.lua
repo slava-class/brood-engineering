@@ -25,6 +25,8 @@ function M.reset_storage()
     storage.entity_to_spider = {}
     storage.assigned_tasks = {}
     storage.assignment_limits = {}
+    storage.task_queue = { by_id = {}, by_surface = {}, revision = 0 }
+    storage.path_requests = {}
     storage.pending_tile_deconstruct = {}
 end
 
@@ -350,6 +352,8 @@ function M.describe_surface_test(name, opts, suite)
             end
             resolved = resolved or {}
 
+            M.reset_storage()
+
             local surface = resolved.surface or game.surfaces[1]
             local force = resolved.force or game.forces.player
 
@@ -400,6 +404,9 @@ function M.describe_surface_test(name, opts, suite)
                         }
                     end
                     create_def.offset = nil
+                    if create_def.raise_built == nil then
+                        create_def.raise_built = true
+                    end
 
                     local entity = surface.create_entity(create_def)
                     assert(entity and entity.valid, "ctx.spawn failed to create entity")
@@ -840,6 +847,9 @@ function M.setup_anchor_test(opts)
             }
         end
         create_def.offset = nil
+        if create_def.raise_built == nil then
+            create_def.raise_built = true
+        end
 
         local entity = ctx.surface.create_entity(create_def)
         assert(entity and entity.valid, "ctx.spawn failed to create entity")

@@ -37,6 +37,38 @@ spiderling.is_military_target = false
 spiderling.chunk_exploration_radius = 0
 spiderling.torso_rotation_speed = (spiderling.torso_rotation_speed or 0.01) * 2
 spiderling.torso_bob_speed = 0.8
+-- Scale draw height with the visual size so tiny spiders don't render above tall foliage.
+spiderling.height = (spiderling.height or 1) * spider_scale
+-- Let spiderlings pass through each other to reduce navigation deadlocks.
+do
+    local mask = spiderling.collision_mask or {}
+    if mask.layers then
+        mask.not_colliding_with_itself = true
+        spiderling.collision_mask = mask
+    else
+        local layers = {}
+        for key, value in pairs(mask) do
+            if type(key) == "string" and value == true then
+                layers[key] = true
+            elseif type(value) == "string" then
+                layers[value] = true
+            end
+        end
+        spiderling.collision_mask = {
+            layers = layers,
+            not_colliding_with_itself = true,
+        }
+    end
+end
+-- Force a lower render layer so tiny spiders don't draw over large objects (trees/rocks).
+if spiderling.graphics_set then
+    if spiderling.graphics_set.base_render_layer ~= nil then
+        spiderling.graphics_set.base_render_layer = "lower-object"
+    end
+    if spiderling.graphics_set.render_layer ~= nil then
+        spiderling.graphics_set.render_layer = "lower-object"
+    end
+end
 
 -- Reduce minimap representation
 if spiderling.minimap_representation then
@@ -89,6 +121,19 @@ local function modify_spider_legs(leg_spec)
 
         if leg_proto.working_sound then
             leg_proto.working_sound.probability = 0.1
+        end
+
+        if leg_proto.graphics_set then
+            leg_proto.graphics_set.joint_render_layer = "lower-object"
+            if leg_proto.graphics_set.upper_part then
+                leg_proto.graphics_set.upper_part.render_layer = "lower-object"
+            end
+            if leg_proto.graphics_set.lower_part then
+                leg_proto.graphics_set.lower_part.render_layer = "lower-object"
+            end
+            if leg_proto.graphics_set.foot then
+                leg_proto.graphics_set.foot.render_layer = "lower-object"
+            end
         end
 
         -- Set collision mask
