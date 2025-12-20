@@ -630,12 +630,15 @@ local function on_entity_died(event)
 end
 
 local function on_object_destroyed(event)
-    local entity_id = event.useful_id
+    local entity_id = event.registration_number or event.useful_id
     if not entity_id then
         return
     end
 
     local spider_id = storage.entity_to_spider[entity_id]
+    if not spider_id and event.useful_id then
+        spider_id = storage.entity_to_spider[event.useful_id]
+    end
     if not spider_id then
         return
     end
@@ -930,6 +933,7 @@ if script.active_mods and script.active_mods["factorio-test"] then
         "tests/recall_spill_test",
         "tests/toggle_disable_recall_test",
         "tests/disable_while_moving_test",
+        "tests/spider_destroy_cleanup_test",
     }, {
         log_passed_tests = true,
         log_skipped_tests = true,

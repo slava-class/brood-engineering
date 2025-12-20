@@ -26,21 +26,21 @@ macOS note:
 
 ## Factorio Docs (Use Liberally)
 
-Use the `mise run docs` command liberally during development (and while writing tests) to quickly find the exact API symbol/behavior you need, with stable IDs and paths.
+Use the `bin/fdocs` command (preferred) or `mise run docs` liberally during development (and while writing tests) to quickly find the exact API symbol/behavior you need, with stable IDs and paths.
 
 It wraps the local `factorio-llm-docs` corpus (search/get/open) and defaults to a checkout at `~/workspace/factorio-llm-docs`.
 If your checkout lives elsewhere, set `FACTORIO_LLM_DOCS_ROOT=/path/to/factorio-llm-docs`.
 
 Codex CLI note:
 
-- In approval-gated runs (especially `approval_policy=untrusted`), `mise run docs -- ...` may be aborted until the user approves the command. If that happens, re-run it while explicitly requesting approval (with a 1-sentence justification).
-- `bin/fdocs` exports workspace-local `MISE_*_DIR` defaults so `mise run docs -- ...` works in filesystem-sandboxed environments without writing to home-scoped dirs.
+- In approval-gated runs (especially `approval_policy=untrusted`), `bin/fdocs`/`mise run docs -- ...` may be aborted until the user approves the command. If that happens, re-run it while explicitly requesting approval (with a 1-sentence justification).
+- `bin/fdocs` exports workspace-local `MISE_*_DIR` defaults so doc runs stay inside the workspace in filesystem-sandboxed environments.
 
 ## Factorio API Usage (MUST)
 
 When writing gameplay code or tests, you **MUST** look up the Factorio API in the offline docs before using **any** Factorio runtime/prototype API. Do not guess signatures, return values, or calling conventions.
 
-- **MUST** use `mise run docs -- search "<symbol>"` and then `mise run docs -- open "<hit>"` (or `mise run docs -- open "runtime:method:LuaX.y"`) to confirm:
+- **MUST** use `bin/fdocs -- search "<symbol>"` (or `mise run docs -- search "<symbol>"`) and then `bin/fdocs -- open "<hit>"` (or `mise run docs -- open "<hit>"`) to confirm:
   - The symbol exists in the target Factorio version.
   - Parameter names/order and whether it uses a named-params table calling convention.
   - Return values (including multi-return) and nilability.
@@ -80,7 +80,7 @@ If you need to sanity check `takes_table` or call order directly, inspect the co
 
 When these APIs show up in gameplay code or tests, prefer using our wrappers so callsites don't have to remember subtle rules:
 
-- `scripts/fapi.lua`: thin wrappers for positional “order gotchas” (`fapi.find_non_colliding_position`, `fapi.set_tiles`, `fapi.teleport`).
+- `scripts/fapi.lua`: wrappers for positional “order gotchas” and destroy options (`fapi.find_non_colliding_position`, `fapi.set_tiles`, `fapi.teleport`, `fapi.destroy`, `fapi.destroy_quiet`, `fapi.destroy_raise`).
 - `scripts/utils.lua`: standardized item drop helpers:
   - `utils.safe_item_stack(...)` (normalize `LuaItemStack`/tables to `ItemStackDefinition`)
   - `utils.spill_item_stack(surface, position, stack, opts)` (wraps `LuaSurface.spill_item_stack{...}`)
@@ -89,6 +89,8 @@ When these APIs show up in gameplay code or tests, prefer using our wrappers so 
 Avoid calling undocumented patterns like `surface.create_entity{ name="item-on-ground", stack = { ... } }` directly; use the helpers above instead.
 
 ### Usage
+
+Replace `mise run docs` with `bin/fdocs` below if you want the wrapper (same flags).
 
 - List available Factorio versions:
   - `mise run docs -- versions`
@@ -161,3 +163,4 @@ Quick docs lookups:
 - Prefer `ctx.anchor_inventory` (already resolved) vs calling `test_utils.anchor_inventory(...)` repeatedly; use `ctx.assert_no_ghosts(...)` helpers where relevant.
 - If a test is specifically about **post-assignment behavior** (recall/cleanup/disable), it is OK to call `spider.assign_task(...)` directly for deterministic setup; otherwise rely on the normal main-loop assignment path.
 - When a test places work far from the anchor, call `test_utils.ensure_chunks(surface, pos, radius)` to avoid placement/pathing variability in ungenerated chunks.
+- When wiring event-driven cleanup or maps keyed by identifiers, verify the exact ID you store matches the event field you later compare (for example, `registration_number` vs `useful_id` vs `unit_number`) and confirm via docs; add a small helper if needed to keep ID usage consistent.

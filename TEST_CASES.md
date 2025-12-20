@@ -21,15 +21,15 @@ The most valuable “true E2E for Brood” blueprint tests are the ones that ass
 ## P0 — Must-have regression tests
 
 ### Global enable/disable + recall correctness
-- [ ] P0: Disabling via `brood-toggle` recalls all deployed spiders and returns **spiderling item** to anchor inventory (or spills if full).
-- [ ] P0: Disable recalls also return **carried spider inventories** (trunk/ammo/trash) into the anchor, spilling overflow (regression for “items lost on recall”).
+- [x] P0: Disabling via `brood-toggle` recalls all deployed spiders and returns **spiderling item** to anchor inventory (or spills if full).
+- [x] P0: Disable recalls also return **carried spider inventories** (trunk/ammo/trash) into the anchor, spilling overflow (regression for “items lost on recall”).
 - [x] P0: Re-enabling does not auto-deploy when there is no executable work (no “thrash deploy/recall”).
 - [x] P0: Disabling while spiders are `moving_to_task` clears assignments and does not leave `storage.assigned_tasks` entries behind.
 
 ### Assignment tracking integrity
 - [ ] P0: `tasks.execute` clears `storage.assigned_tasks[task.id]` on success and on failure (e.g., target invalid mid-execution).
 - [ ] P0: `tasks.cleanup_stale` removes assignments where the spider is missing, the anchor is missing, or the spider has a different task.
-- [ ] P0: Destroyed spider entities (via `on_object_destroyed`) clear `storage.entity_to_spider`, `storage.spider_to_anchor`, and any assigned task id.
+- [x] P0: Destroyed spider entities (via `on_object_destroyed`) clear `storage.entity_to_spider`, `storage.spider_to_anchor`, and any assigned task id.
 
 ### Item-request-proxy / module insertion correctness (known pain area)
 - [ ] P0: Insert plan consumes exactly the requested count (never pulls full stacks).
